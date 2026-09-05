@@ -74,7 +74,7 @@ func main() {
 		}
 	}
 
-	
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
@@ -148,7 +148,7 @@ func main() {
 	r.HandleFunc("/webhook/stripe", stripeHandler.HandleWebhook).Methods("POST", "OPTIONS")
 
 	allowedOrigins := handlers.AllowedOrigins([]string{
-		"https://front-estacionamiento-octaviomartinduarte-5073s-projects.vercel.app", "http://localhost:3000",
+		"httos://front-estacionamiento.greenparkingtrapani.wor-kers.dev/",
 	})
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "X-Requested-With"})
