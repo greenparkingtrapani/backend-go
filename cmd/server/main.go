@@ -73,10 +73,17 @@ func main() {
 			log.Println("No .env file found")
 		}
 	}
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
+	safeURL := dbURL
+	if len(dbURL) > 30 { 
+		safeURL = dbURL[:15] + "...[oculto]..." + dbURL[len(dbURL)-40:]
+	}
+	log.Printf("Intentando conectar a DB: %s", safeURL)
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Failed to open DB: %v", err)
@@ -140,7 +147,7 @@ func main() {
 	r.HandleFunc("/webhook/stripe", stripeHandler.HandleWebhook).Methods("POST", "OPTIONS")
 
 	allowedOrigins := handlers.AllowedOrigins([]string{
-		"https://front-estacionamiento-octaviomartinduarte-5073s-projects.vercel.app",
+		"https://front-estacionamiento-octaviomartinduarte-5073s-projects.vercel.app", "http://localhost:3000",
 	})
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "X-Requested-With"})
