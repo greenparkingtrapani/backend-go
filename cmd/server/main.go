@@ -74,6 +74,7 @@ func main() {
 		}
 	}
 
+	
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
