@@ -148,7 +148,7 @@ func main() {
 	r.HandleFunc("/webhook/stripe", stripeHandler.HandleWebhook).Methods("POST", "OPTIONS")
 
 	allowedOrigins := handlers.AllowedOrigins([]string{
-		"httos://front-estacionamiento.greenparkingtrapani.wor-kers.dev/",
+		"httos://front-estacionamiento.greenparkingtrapani.workers.dev/",
 	})
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "X-Requested-With"})
