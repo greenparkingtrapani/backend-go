@@ -33,6 +33,7 @@ func (s *StripeService) RefundPaymentBySessionID(sessionID string) error {
 
 // Create checkout session
 func (s *StripeService) CreateCheckoutSession(amount int64, currency, customerEmail string, language string) (string, string, error) {
+	frontendURL := os.Getenv("FRONTEND_URL")
 	params := &stripe.CheckoutSessionParams{
 		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
@@ -48,8 +49,8 @@ func (s *StripeService) CreateCheckoutSession(amount int64, currency, customerEm
 			},
 		},
 		Mode:          stripe.String(string(stripe.CheckoutSessionModePayment)),
-		SuccessURL:    stripe.String("https://front-estacionamiento-octaviomartinduarte-5073s-projects.vercel.app/" + language + "/reservations/create/?session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:     stripe.String("https://front-estacionamiento-octaviomartinduarte-5073s-projects.vercel.app/" + language + "/reservations/create/failed"),
+		SuccessURL: stripe.String(frontendURL + "/" + language + "/reservations/create/?session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:  stripe.String(frontendURL + "/" + language + "/reservations/create/failed"),
 		CustomerEmail: stripe.String(customerEmail),
 		Locale:        stripe.String(language),
 	}
