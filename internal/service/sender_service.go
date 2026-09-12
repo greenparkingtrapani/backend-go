@@ -94,7 +94,7 @@ func (s *SenderService) SendReservationEmail(reservation entities.ReservationRes
 	htmlBody := htmlBodyBuffer.String()
 
 	go func(toEmail, userName, subject, plainBody, htmlBodyContent string) {
-		errEmail := SendEmailWithSendGrid(toEmail, userName, subject, plainBody, htmlBodyContent)
+		errEmail := SendEmailWithResend(toEmail, userName, subject, plainBody, htmlBodyContent)
 		if errEmail != nil {
 			log.Printf("ALERTA (asíncrono): Falló envío de correo para reserva %s: %v", emailData.ReservationCode, errEmail)
 		}
