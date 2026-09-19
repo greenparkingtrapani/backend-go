@@ -64,22 +64,16 @@ CREATE TABLE reservations (
 
 INSERT INTO vehicle_types (name) VALUES ('car'), ('motorcycle'), ('suv');
 
-INSERT INTO reservation_times (name) VALUES ('hour'), ('daily'), ('weekly'), ('monthly');
+INSERT INTO reservation_times (name) VALUES ('hour'), ('daily');
 
 INSERT INTO vehicle_prices (vehicle_type_id, reservation_time_id, price)
 VALUES 
     (1, 1, 4),  -- car hour
-    (1, 2, 10) -- car daily
-    (1, 3, 20),  -- car weekly
-    (1, 4, 40), -- car monthly
+    (1, 2, 10), -- car daily
     (2, 1, 2),  -- motorcycle hour
-    (2, 2, 8) -- motorcycle daily
-    (2, 3, 15),  -- motorcycle weekly
-    (2, 4, 30), -- motorcycle monthly
+    (2, 2, 8),  -- motorcycle daily
     (3, 1, 6),  -- suv hour
-    (3, 2, 12) -- suv daily
-    (3, 3, 25),  -- suv weekly
-    (3, 4, 50); -- suv monthly
+    (3, 2, 12); -- suv daily
 
 INSERT INTO vehicle_spaces (vehicle_type_id, spaces)
 VALUES 

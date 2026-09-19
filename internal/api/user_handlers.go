@@ -154,7 +154,7 @@ func (h *UserReservationHandler) GetTotalPriceForReservation(w http.ResponseWrit
 	}
 	endTime = endTime.UTC()
 
-	totalPrice, err := h.Service.GetTotalPriceForReservation(vehicleTypeID, startTime, endTime)
+	response, err := h.Service.GetTotalPriceForReservation(vehicleTypeID, startTime, endTime)
 	if err != nil {
 		if herr, ok := err.(*errors.HTTPError); ok {
 			http.Error(w, herr.Message, herr.Code)
@@ -164,7 +164,6 @@ func (h *UserReservationHandler) GetTotalPriceForReservation(w http.ResponseWrit
 		return
 	}
 
-	response := map[string]float32{"total_price": totalPrice}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

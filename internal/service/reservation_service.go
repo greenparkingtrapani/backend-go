@@ -19,6 +19,12 @@ const (
 	statusPending = "pending"
 	statusCancel  = "canceled"
 	deposit       = 0.3
+
+	reservationTimeHour  = 1
+	reservationTimeDaily = 2
+
+	discountThresholdDays = 5
+	discountRate          = 0.10
 )
 
 type ReservationService struct {
@@ -109,36 +115,34 @@ func (s *ReservationService) CheckAvailability(req entities.ReservationRequest) 
 	return response, nil
 }
 
-func (s *ReservationService) GetTotalPriceForReservation(vehicleTypeID int, startTime, endTime time.Time) (float32, error) {
+func (s *ReservationService) GetTotalPriceForReservation(vehicleTypeID int, startTime, endTime time.Time) (*entities.TotalPriceResponse, error) {
 	if !endTime.After(startTime) {
-		return 0, fmt.Errorf("end_time must be after start_time")
+		return nil, fmt.Errorf("end_time must be after start_time")
 	}
-	months, weeks, days, hours := getUnitCounts(startTime, endTime)
+	days, hours := getUnitCounts(startTime, endTime)
 
-	priceHour, err := s.Repo.GetPriceForUnit(vehicleTypeID, 1)
+	priceHour, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeHour)
 	if err != nil {
 		log.Printf("Error from GetPriceForUnit (hour): %v", err)
-		return 0, fmt.Errorf("could not get price per hour: %w", err)
+		return nil, fmt.Errorf("could not get price per hour: %w", err)
 	}
-	priceDay, err := s.Repo.GetPriceForUnit(vehicleTypeID, 2)
+	priceDay, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeDaily)
 	if err != nil {
 		log.Printf("Error from GetPriceForUnit (day): %v", err)
-		return 0, fmt.Errorf("could not get price per day: %w", err)
-	}
-	priceWeek, err := s.Repo.GetPriceForUnit(vehicleTypeID, 3)
-	if err != nil {
-		log.Printf("Error from GetPriceForUnit (week): %v", err)
-		return 0, fmt.Errorf("could not get price per week: %w", err)
-	}
-	priceMonth, err := s.Repo.GetPriceForUnit(vehicleTypeID, 4)
-	if err != nil {
-		log.Printf("Error from GetPriceForUnit (month): %v", err)
-		return 0, fmt.Errorf("could not get price per month: %w", err)
+		return nil, fmt.Errorf("could not get price per day: %w", err)
 	}
 
-	result := float32(months)*priceMonth + float32(weeks)*priceWeek + float32(days)*priceDay + float32(hours)*priceHour
+	result := float32(days)*priceDay + float32(hours)*priceHour
+	discount := days >= discountThresholdDays
+	if discount {
+		result = result * (1 - discountRate)
+	}
 	result = float32(int(result*10)) / 10
-	return result, nil
+
+	return &entities.TotalPriceResponse{
+		TotalPrice: result,
+		Discount:   discount,
+	}, nil
 }
 
 func (s *ReservationService) CreateReservation(req *entities.ReservationRequest) (*entities.StripeSessionResponse, error) {
@@ -316,21 +320,13 @@ func (s *ReservationService) handlePaymentIntent(req *entities.ReservationReques
 	return sessionURL, nil
 }
 
-func getUnitCounts(startTime, endTime time.Time) (months, weeks, days, hours int) {
+func getUnitCounts(startTime, endTime time.Time) (days, hours int) {
 	d := endTime.Sub(startTime)
 	if d <= 0 {
-		return 0, 0, 0, 0
+		return 0, 0
 	}
 
-	monthDur := 30 * 24 * time.Hour
-	weekDur := 7 * 24 * time.Hour
 	dayDur := 24 * time.Hour
-
-	months = int(d / monthDur)
-	d -= time.Duration(months) * monthDur
-
-	weeks = int(d / weekDur)
-	d -= time.Duration(weeks) * weekDur
 
 	days = int(d / dayDur)
 	d -= time.Duration(days) * dayDur
@@ -344,10 +340,6 @@ func getUnitCounts(startTime, endTime time.Time) (months, weeks, days, hours int
 	if hours >= 24 {
 		days += hours / 24
 		hours = hours % 24
-	}
-	if days >= 7 {
-		weeks += days / 7
-		days = days % 7
 	}
 	return
 }
