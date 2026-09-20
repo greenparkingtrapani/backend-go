@@ -27,8 +27,10 @@ func (h *AdminHandler) ListReservations(w http.ResponseWriter, r *http.Request) 
 	status := r.URL.Query().Get("status")
 	limit := r.URL.Query().Get("limit")
 	offset := r.URL.Query().Get("offset")
+	sortBy := r.URL.Query().Get("sort_by")
+	sortOrder := r.URL.Query().Get("sort_order")
 
-	reservations, err := h.adminService.ListReservations(startTimeStr, endTimeStr, code, vehicleType, status, limit, offset)
+	reservations, err := h.adminService.ListReservations(startTimeStr, endTimeStr, code, vehicleType, status, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return

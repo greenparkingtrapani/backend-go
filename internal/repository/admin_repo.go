@@ -7,6 +7,7 @@ import (
 	"estacionamienti/internal/entities"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,7 +19,7 @@ func NewAdminRepository(db *sql.DB) *AdminRepository {
 	return &AdminRepository{DB: db}
 }
 
-func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset string) (reservationsList entities.ReservationsList, err error) {
+func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder string) (reservationsList entities.ReservationsList, err error) {
 	loc, _ := time.LoadLocation("Europe/Rome") // Horario de Italia
 
 	// Build WHERE clause
@@ -98,13 +99,38 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 	JOIN payment_method pm ON pm.id = r.payment_method_id
 	` + whereClause
 
-	// Ordenamiento dinámico
-	if startTime != "" {
-		query += " ORDER BY r.start_time DESC"
+	// Only allow known columns/directions because SQL identifiers cannot be parameterized.
+	sortColumns := map[string]string{
+		"code":     "r.code",
+		"customer": "r.user_name",
+		"vehicle":  "vt.name",
+		"payment":  "pm.name",
+		"amount":   "r.total_price",
+		"start":    "r.start_time",
+		"end":      "r.end_time",
+	}
+	statusOrder := "CASE r.status WHEN 'active' THEN 1 WHEN 'pending' THEN 2 WHEN 'finished' THEN 3 WHEN 'canceled' THEN 4 ELSE 5 END"
+	paymentStatusOrder := "CASE COALESCE(r.payment_status, '') WHEN 'pending' THEN 1 WHEN 'succeeded' THEN 2 WHEN 'refunded' THEN 3 ELSE 4 END"
+	direction := strings.ToUpper(sortOrder)
+	if direction != "ASC" && direction != "DESC" {
+		direction = "DESC"
+	}
+
+	column, requestedSort := sortColumns[sortBy]
+	if sortBy == "status" {
+		query += " ORDER BY " + statusOrder + " " + direction + ", r.id " + direction
+	} else if sortBy == "vehicle" {
+		query += " ORDER BY " + column + " " + direction + ", COALESCE(r.vehicle_plate, '') " + direction + ", COALESCE(r.vehicle_model, '') " + direction + ", r.id " + direction
+	} else if sortBy == "payment" {
+		query += " ORDER BY " + column + " " + direction + ", " + paymentStatusOrder + " " + direction + ", r.id " + direction
+	} else if requestedSort {
+		query += " ORDER BY " + column + " " + direction + ", r.id " + direction
+	} else if startTime != "" {
+		query += " ORDER BY r.start_time DESC, r.id DESC"
 	} else if endTime != "" {
-		query += " ORDER BY r.end_time DESC"
+		query += " ORDER BY r.end_time DESC, r.id DESC"
 	} else {
-		query += " ORDER BY r.created_at DESC"
+		query += " ORDER BY r.created_at DESC, r.id DESC"
 	}
 
 	if limit != "" {
