@@ -44,9 +44,13 @@ func (h *StripeWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Requ
 	}
 
 	sigHeader := r.Header.Get("Stripe-Signature")
-	event, err := webhook.ConstructEvent(payload, sigHeader, h.StripeSecret)
+	// IgnoreAPIVersionMismatch: webhook endpoint may use a newer Stripe API
+	// version (e.g. dahlia) than stripe-go v82 (basil).
+	event, err := webhook.ConstructEventWithOptions(payload, sigHeader, h.StripeSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
-		log.Printf("Webhook signature verification failed: %v", err)
+		log.Printf("Webhook event construction failed: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
