@@ -88,6 +88,7 @@ func (h *StripeWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Requ
 		statusTraducido := h.senderService.StatusTranslation(confirmed, reservation.Language)
 		h.senderService.SendReservationSMS(*reservation, statusTraducido)
 		h.senderService.SendReservationEmail(*reservation, statusTraducido)
+		h.senderService.SendAdminReservationEmail(*reservation)
 
 	case "charge.refunded":
 		var charge stripe.Charge

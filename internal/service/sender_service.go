@@ -6,8 +6,18 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net/mail"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
+)
+
+const (
+	adminNotificationEmailEnv      = "ADMIN_NOTIFICATION_EMAIL"
+	adminNotificationRecipientName = "Amministratore"
+	adminNotificationLanguage      = "it"
+	confirmedReservationStatus     = "confirmed"
 )
 
 type SenderService struct {
@@ -18,28 +28,62 @@ func NewSenderService() *SenderService {
 }
 
 func (s *SenderService) SendReservationEmail(reservation entities.ReservationResponse, status string) {
-	italyLoc, errLoc := time.LoadLocation("Europe/Rome")
-	if errLoc != nil {
-		italyLoc = time.FixedZone("CET", 1*60*60) // fallback CET
+	emailData := reservationEmailData(reservation, status, false)
+	subject, plainTextBody := customerReservationEmailCopy(emailData)
+	htmlBody := renderReservationEmail(emailData)
+	sendReservationEmailAsync(reservation.UserEmail, emailData.UserName, subject, plainTextBody, htmlBody, emailData.ReservationCode)
+}
+
+func (s *SenderService) SendAdminReservationEmail(reservation entities.ReservationResponse) {
+	adminEmail := strings.TrimSpace(os.Getenv(adminNotificationEmailEnv))
+	if adminEmail == "" {
+		log.Printf("ADVERTENCIA: %s no está configurada. No se enviará el aviso al administrador de la reserva %s.", adminNotificationEmailEnv, reservation.Code)
+		return
+	}
+	if _, err := mail.ParseAddress(adminEmail); err != nil {
+		log.Printf("ADVERTENCIA: %s no es un correo válido. No se enviará el aviso al administrador de la reserva %s.", adminNotificationEmailEnv, reservation.Code)
+		return
 	}
 
-	emailData := entities.ReservationEmailData{
+	status := s.StatusTranslation(confirmedReservationStatus, adminNotificationLanguage)
+	emailData := reservationEmailData(reservation, status, true)
+	subject, plainTextBody := adminReservationEmailCopy(emailData)
+	htmlBody := renderReservationEmail(emailData)
+	sendReservationEmailAsync(adminEmail, adminNotificationRecipientName, subject, plainTextBody, htmlBody, emailData.ReservationCode)
+}
+
+func reservationEmailData(reservation entities.ReservationResponse, status string, isAdmin bool) entities.ReservationEmailData {
+	italyLoc, errLoc := time.LoadLocation("Europe/Rome")
+	if errLoc != nil {
+		italyLoc = time.FixedZone("CET", 1*60*60)
+	}
+
+	language := reservation.Language
+	if isAdmin {
+		language = adminNotificationLanguage
+	}
+
+	return entities.ReservationEmailData{
 		UserName:           reservation.UserName,
+		UserEmail:          reservation.UserEmail,
+		UserPhone:          reservation.UserPhone,
 		ReservationCode:    reservation.Code,
 		VehicleModel:       reservation.VehicleModel,
 		VehiclePlate:       reservation.VehiclePlate,
 		StartTimeFormatted: reservation.StartTime.In(italyLoc).Format("02 Jan 2006 15:04 MST"),
 		EndTimeFormatted:   reservation.EndTime.In(italyLoc).Format("02 Jan 2006 15:04 MST"),
 		CurrentYear:        time.Now().In(italyLoc).Year(),
-		Language:           reservation.Language,
+		Language:           language,
 		Status:             status,
+		IsAdmin:            isAdmin,
 	}
+}
 
-	var emailSubject, plainTextBody string
-	switch reservation.Language {
+func customerReservationEmailCopy(emailData entities.ReservationEmailData) (string, string) {
+	switch emailData.Language {
 	case "es":
-		emailSubject = fmt.Sprintf("Tu reserva en GreenParking está %s - Código: %s", status, emailData.ReservationCode)
-		plainTextBody = fmt.Sprintf(
+		subject := fmt.Sprintf("Tu reserva en GreenParking está %s - Código: %s", emailData.Status, emailData.ReservationCode)
+		body := fmt.Sprintf(
 			"Hola %s,\n\nTu reserva en GreenParking está %s.\n\n"+
 				"Detalles de la reserva:\n"+
 				"Código de Reserva: %s\n"+
@@ -47,13 +91,14 @@ func (s *SenderService) SendReservationEmail(reservation entities.ReservationRes
 				"Check-in: %s\n"+
 				"Check-out: %s\n\n"+
 				"Gracias por elegir GreenParking.\n\n"+
-				"GreenParking. Todos los derechos reservados.",
-			emailData.UserName, status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+				"© %d GreenParking. Todos los derechos reservados.",
+			emailData.UserName, emailData.Status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
 			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
 		)
+		return subject, body
 	case "it":
-		emailSubject = fmt.Sprintf("La tua prenotazione GreenParking è %s - Codice: %s", status, emailData.ReservationCode)
-		plainTextBody = fmt.Sprintf(
+		subject := fmt.Sprintf("La tua prenotazione GreenParking è %s - Codice: %s", emailData.Status, emailData.ReservationCode)
+		body := fmt.Sprintf(
 			"Ciao %s,\n\nLa tua prenotazione presso GreenParking è %s.\n\n"+
 				"Dettagli della prenotazione:\n"+
 				"Codice prenotazione: %s\n"+
@@ -61,44 +106,72 @@ func (s *SenderService) SendReservationEmail(reservation entities.ReservationRes
 				"Check-in: %s\n"+
 				"Check-out: %s\n\n"+
 				"Grazie per aver scelto GreenParking.\n\n"+
-				"GreenParking. Tutti i diritti riservati.",
-			emailData.UserName, status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+				"© %d GreenParking. Tutti i diritti riservati.",
+			emailData.UserName, emailData.Status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
 			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
 		)
+		return subject, body
 	default:
-		emailSubject = fmt.Sprintf("Your GreenParking reservation is %s - Code: %s", status, emailData.ReservationCode)
-		plainTextBody = fmt.Sprintf(
-			"Hello %s,\n\nYour reservation at GreenPark is %s.\n\n"+
+		subject := fmt.Sprintf("Your GreenParking reservation is %s - Code: %s", emailData.Status, emailData.ReservationCode)
+		body := fmt.Sprintf(
+			"Hello %s,\n\nYour reservation at GreenParking is %s.\n\n"+
 				"Reservation Details:\n"+
 				"Reservation Code: %s\n"+
 				"Vehicle: %s (Plate: %s)\n"+
 				"Check-in: %s\n"+
 				"Check-out: %s\n\n"+
 				"Thank you for choosing GreenParking.\n\n"+
-				"GreenParking. All rights reserved.",
-			emailData.UserName, status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+				"© %d GreenParking. All rights reserved.",
+			emailData.UserName, emailData.Status, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
 			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
 		)
+		return subject, body
 	}
+}
 
+func adminReservationEmailCopy(emailData entities.ReservationEmailData) (string, string) {
+	subject := fmt.Sprintf("Nuova prenotazione confermata su GreenParking - Codice: %s", emailData.ReservationCode)
+	body := fmt.Sprintf(
+		"C'è una nuova prenotazione su GreenParking e il pagamento è già stato effettuato. Lo stato è %s.\n\n"+
+			"Dettagli della prenotazione:\n"+
+			"Codice prenotazione: %s\n"+
+			"Cliente: %s\n"+
+			"Email: %s\n"+
+			"Telefono: %s\n"+
+			"Veicolo: %s (Targa: %s)\n"+
+			"Check-in: %s\n"+
+			"Check-out: %s\n\n"+
+			"Questo avviso è per l'amministratore del parcheggio.\n\n"+
+			"© %d GreenParking. Tutti i diritti riservati.",
+		emailData.Status, emailData.ReservationCode, emailData.UserName, emailData.UserEmail, emailData.UserPhone,
+		emailData.VehicleModel, emailData.VehiclePlate, emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
+	)
+	return subject, body
+}
+
+func renderReservationEmail(emailData entities.ReservationEmailData) string {
 	tmplPath := filepath.Join("internal", "templates", "reservation_email.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
 		log.Printf("ALERTA: Error al parsear la plantilla de correo HTML (%s): %v", tmplPath, err)
+		return ""
 	}
 
 	var htmlBodyBuffer bytes.Buffer
 	if err := tmpl.Execute(&htmlBodyBuffer, emailData); err != nil {
 		log.Printf("ALERTA: Error al ejecutar la plantilla de correo HTML para reserva %s: %v", emailData.ReservationCode, err)
+		return ""
 	}
-	htmlBody := htmlBodyBuffer.String()
+	return htmlBodyBuffer.String()
+}
 
-	go func(toEmail, userName, subject, plainBody, htmlBodyContent string) {
-		errEmail := SendEmailWithResend(toEmail, userName, subject, plainBody, htmlBodyContent)
+func sendReservationEmailAsync(toEmail, toName, subject, plainBody, htmlBody, reservationCode string) {
+	go func() {
+		errEmail := SendEmailWithResend(toEmail, toName, subject, plainBody, htmlBody)
 		if errEmail != nil {
-			log.Printf("ALERTA (asíncrono): Falló envío de correo para reserva %s: %v", emailData.ReservationCode, errEmail)
+			log.Printf("ALERTA (asíncrono): Falló envío de correo para reserva %s: %v", reservationCode, errEmail)
 		}
-	}(reservation.UserEmail, emailData.UserName, emailSubject, plainTextBody, htmlBody)
+	}()
 }
 
 func (s *SenderService) SendReservationSMS(reservation entities.ReservationResponse, status string) {

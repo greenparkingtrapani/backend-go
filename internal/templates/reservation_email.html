@@ -70,19 +70,32 @@
     </div>
 
     <div class="content">
-        {{if eq .Language "es"}}
-            <h2 style="color: #333333; font-size: 1.3em;">Hola {{.UserName}},</h2>
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Tu reserva en <strong>GreenParking</strong> está <strong>{{.Status}}</strong>!</p>
-        {{else if eq .Language "it"}}
-            <h2 style="color: #333333; font-size: 1.3em;">Ciao {{.UserName}},</h2>
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">La tua prenotazione presso <strong>GreenParking</strong> è <strong>{{.Status}}</strong>!</p>
+        {{if .IsAdmin}}
+            <h2 style="color: #333333; font-size: 1.3em;">Nuova prenotazione confermata</h2>
+            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">C'è una nuova prenotazione su <strong>GreenParking</strong> e il pagamento è già stato effettuato. Lo stato è <strong>{{.Status}}</strong>.</p>
         {{else}}
-            <h2 style="color: #333333; font-size: 1.3em;">Hello {{.UserName}},</h2>
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Your reservation at <strong>GreenParking</strong> is <strong>{{.Status}}</strong>!</p>
+            {{if eq .Language "es"}}
+                <h2 style="color: #333333; font-size: 1.3em;">Hola {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Tu reserva en <strong>GreenParking</strong> está <strong>{{.Status}}</strong>!</p>
+            {{else if eq .Language "it"}}
+                <h2 style="color: #333333; font-size: 1.3em;">Ciao {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">La tua prenotazione presso <strong>GreenParking</strong> è <strong>{{.Status}}</strong>!</p>
+            {{else}}
+                <h2 style="color: #333333; font-size: 1.3em;">Hello {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Your reservation at <strong>GreenParking</strong> is <strong>{{.Status}}</strong>!</p>
+            {{end}}
         {{end}}
 
         <div class="reservation-details" style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            {{if eq .Language "es"}}
+            {{if .IsAdmin}}
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Cliente:</strong> {{.UserName}}</p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Email:</strong> {{.UserEmail}}</p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Telefono:</strong> {{.UserPhone}}</p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Codice prenotazione:</strong> <span style="font-weight: bold; color: #4CAF50;">{{.ReservationCode}}</span></p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Veicolo:</strong> {{.VehicleModel}} (Targa: {{.VehiclePlate}})</p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Data e ora di check-in:</strong> {{.StartTimeFormatted}}</p>
+                <p style="margin: 8px 0; font-size: 0.95em;"><strong>Data e ora di check-out:</strong> {{.EndTimeFormatted}}</p>
+            {{else if eq .Language "es"}}
                 <p style="margin: 8px 0; font-size: 0.95em;"><strong>Código de Reserva:</strong> <span style="font-weight: bold; color: #4CAF50;">{{.ReservationCode}}</span></p>
                 <p style="margin: 8px 0; font-size: 0.95em;"><strong>Vehículo:</strong> {{.VehicleModel}} (Patente: {{.VehiclePlate}})</p>
                 <p style="margin: 8px 0; font-size: 0.95em;"><strong>Fecha y hora de entrada:</strong> {{.StartTimeFormatted}}</p>
@@ -100,30 +113,42 @@
             {{end}}
         </div>
 
-        {{if eq .Language "es"}}
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Te esperamos. Gracias por elegir GreenParking.</p>
-        {{else if eq .Language "it"}}
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Ti aspettiamo. Grazie per aver scelto GreenParking.</p>
+        {{if .IsAdmin}}
+            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Questo avviso è per l'amministratore del parcheggio.</p>
         {{else}}
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">We look forward to seeing you. Thank you for choosing GreenParking.</p>
+            {{if eq .Language "es"}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Te esperamos. Gracias por elegir GreenParking.</p>
+            {{else if eq .Language "it"}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Ti aspettiamo. Grazie per aver scelto GreenParking.</p>
+            {{else}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">We look forward to seeing you. Thank you for choosing GreenParking.</p>
+            {{end}}
         {{end}}
     </div>
 
     <div class="footer" style="text-align: center; font-size: 0.9em; color: #777777; margin-top: 25px; padding-top: 15px; border-top: 1px solid #eeeeee;">
-        {{if eq .Language "es"}}
-            <p>Si tienes alguna pregunta sobre tu reserva, no dudes en contactarnos.</p>
-            <p>Email: greenparkingtrapani@gmail.com</p>
-            <p>Teléfono: +34 352 2582644</p>
+        {{if not .IsAdmin}}
+            {{if eq .Language "es"}}
+                <p>Si tienes alguna pregunta sobre tu reserva, no dudes en contactarnos.</p>
+                <p>Email: greenparkingtrapani@gmail.com</p>
+                <p>Teléfono: +34 352 2582644</p>
+            {{else if eq .Language "it"}}
+                <p>Se hai domande sulla tua prenotazione, non esitare a contattarci.</p>
+                <p>Email: greenparkingtrapani@gmail.com</p>
+                <p>Telefono: +34 352 2582644</p>
+            {{else}}
+                <p>If you have any questions about your reservation, please don't hesitate to contact us.</p>
+                <p>Email: greenparkingtrapani@gmail.com</p>
+                <p>Phone: +34 352 2582644</p>
+            {{end}}
+        {{end}}
+        {{if .IsAdmin}}
+            <p>&copy; {{.CurrentYear}} GreenParking. Tutti i diritti riservati.</p>
+        {{else if eq .Language "es"}}
             <p>&copy; {{.CurrentYear}} GreenParking. Todos los derechos reservados.</p>
         {{else if eq .Language "it"}}
-            <p>Se hai domande sulla tua prenotazione, non esitare a contattarci.</p>
-            <p>Email: greenparkingtrapani@gmail.com</p>
-            <p>Telefono: +34 352 2582644</p>
             <p>&copy; {{.CurrentYear}} GreenParking. Tutti i diritti riservati.</p>
         {{else}}
-            <p>If you have any questions about your reservation, please don't hesitate to contact us.</p>
-            <p>Email: greenparkingtrapani@gmail.com</p>
-            <p>Phone: +34 352 2582644</p>
             <p>&copy; {{.CurrentYear}} GreenParking. All rights reserved.</p>
         {{end}}
     </div>
