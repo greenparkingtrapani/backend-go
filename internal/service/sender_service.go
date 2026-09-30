@@ -18,6 +18,7 @@ const (
 	adminNotificationRecipientName = "Amministratore"
 	adminNotificationLanguage      = "it"
 	confirmedReservationStatus     = "confirmed"
+	canceledReservationStatus      = "canceled"
 )
 
 type SenderService struct {
@@ -34,7 +35,7 @@ func (s *SenderService) SendReservationEmail(reservation entities.ReservationRes
 	sendReservationEmailAsync(reservation.UserEmail, emailData.UserName, subject, plainTextBody, htmlBody, emailData.ReservationCode)
 }
 
-func (s *SenderService) SendAdminReservationEmail(reservation entities.ReservationResponse) {
+func (s *SenderService) SendAdminReservationEmail(reservation entities.ReservationResponse, statusKey string) {
 	adminEmail := strings.TrimSpace(os.Getenv(adminNotificationEmailEnv))
 	if adminEmail == "" {
 		log.Printf("ADVERTENCIA: %s no está configurada. No se enviará el aviso al administrador de la reserva %s.", adminNotificationEmailEnv, reservation.Code)
@@ -45,7 +46,7 @@ func (s *SenderService) SendAdminReservationEmail(reservation entities.Reservati
 		return
 	}
 
-	status := s.StatusTranslation(confirmedReservationStatus, adminNotificationLanguage)
+	status := s.StatusTranslation(statusKey, adminNotificationLanguage)
 	emailData := reservationEmailData(reservation, status, true)
 	subject, plainTextBody := adminReservationEmailCopy(emailData)
 	htmlBody := renderReservationEmail(emailData)
@@ -76,10 +77,24 @@ func reservationEmailData(reservation entities.ReservationResponse, status strin
 		Language:           language,
 		Status:             status,
 		IsAdmin:            isAdmin,
+		IsCancellation:     isCancellationStatus(status),
+	}
+}
+
+func isCancellationStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case canceledReservationStatus, "cancelled", "cancelada", "annullata":
+		return true
+	default:
+		return false
 	}
 }
 
 func customerReservationEmailCopy(emailData entities.ReservationEmailData) (string, string) {
+	if emailData.IsCancellation {
+		return customerCancellationEmailCopy(emailData)
+	}
+
 	switch emailData.Language {
 	case "es":
 		subject := fmt.Sprintf("Tu reserva en GreenParking está %s - Código: %s", emailData.Status, emailData.ReservationCode)
@@ -129,7 +144,77 @@ func customerReservationEmailCopy(emailData entities.ReservationEmailData) (stri
 	}
 }
 
+func customerCancellationEmailCopy(emailData entities.ReservationEmailData) (string, string) {
+	switch emailData.Language {
+	case "es":
+		subject := fmt.Sprintf("Tu reserva en GreenParking ha sido cancelada - Código: %s", emailData.ReservationCode)
+		body := fmt.Sprintf(
+			"Hola %s,\n\nTe informamos que tu reserva en GreenParking ha sido cancelada.\n\n"+
+				"Detalles de la reserva cancelada:\n"+
+				"Código de Reserva: %s\n"+
+				"Vehículo: %s (Patente: %s)\n"+
+				"Check-in: %s\n"+
+				"Check-out: %s\n\n"+
+				"Si no solicitaste esta cancelación o tienes alguna consulta, contáctanos.\n\n"+
+				"© %d GreenParking. Todos los derechos reservados.",
+			emailData.UserName, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
+		)
+		return subject, body
+	case "it":
+		subject := fmt.Sprintf("La tua prenotazione GreenParking è stata annullata - Codice: %s", emailData.ReservationCode)
+		body := fmt.Sprintf(
+			"Ciao %s,\n\nTi informiamo che la tua prenotazione presso GreenParking è stata annullata.\n\n"+
+				"Dettagli della prenotazione annullata:\n"+
+				"Codice prenotazione: %s\n"+
+				"Veicolo: %s (Targa: %s)\n"+
+				"Check-in: %s\n"+
+				"Check-out: %s\n\n"+
+				"Se non hai richiesto tu questa cancellazione o hai domande, contattaci.\n\n"+
+				"© %d GreenParking. Tutti i diritti riservati.",
+			emailData.UserName, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
+		)
+		return subject, body
+	default:
+		subject := fmt.Sprintf("Your GreenParking reservation has been canceled - Code: %s", emailData.ReservationCode)
+		body := fmt.Sprintf(
+			"Hello %s,\n\nWe inform you that your GreenParking reservation has been canceled.\n\n"+
+				"Canceled reservation details:\n"+
+				"Reservation Code: %s\n"+
+				"Vehicle: %s (Plate: %s)\n"+
+				"Check-in: %s\n"+
+				"Check-out: %s\n\n"+
+				"If you did not request this cancellation or have any questions, please contact us.\n\n"+
+				"© %d GreenParking. All rights reserved.",
+			emailData.UserName, emailData.ReservationCode, emailData.VehicleModel, emailData.VehiclePlate,
+			emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
+		)
+		return subject, body
+	}
+}
+
 func adminReservationEmailCopy(emailData entities.ReservationEmailData) (string, string) {
+	if emailData.IsCancellation {
+		subject := fmt.Sprintf("Prenotazione annullata dal cliente - Codice: %s", emailData.ReservationCode)
+		body := fmt.Sprintf(
+			"Un cliente ha annullato una prenotazione su GreenParking. Lo stato è %s.\n\n"+
+				"Dettagli della prenotazione:\n"+
+				"Codice prenotazione: %s\n"+
+				"Cliente: %s\n"+
+				"Email: %s\n"+
+				"Telefono: %s\n"+
+				"Veicolo: %s (Targa: %s)\n"+
+				"Check-in: %s\n"+
+				"Check-out: %s\n\n"+
+				"Questo avviso è per l'amministratore del parcheggio.\n\n"+
+				"© %d GreenParking. Tutti i diritti riservati.",
+			emailData.Status, emailData.ReservationCode, emailData.UserName, emailData.UserEmail, emailData.UserPhone,
+			emailData.VehicleModel, emailData.VehiclePlate, emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
+		)
+		return subject, body
+	}
+
 	subject := fmt.Sprintf("Nuova prenotazione confermata su GreenParking - Codice: %s", emailData.ReservationCode)
 	body := fmt.Sprintf(
 		"C'è una nuova prenotazione su GreenParking e il pagamento è già stato effettuato. Lo stato è %s.\n\n"+

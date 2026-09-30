@@ -87,6 +87,7 @@ func (s *AdminService) CancelReservation(code string, refund bool) error {
 			log.Printf("Error canceling reservation: %v", err)
 			return err
 		}
+		s.notifyCustomerCancellation(code)
 		return nil
 	}
 	if refund {
@@ -101,7 +102,18 @@ func (s *AdminService) CancelReservation(code string, refund bool) error {
 		log.Printf("Error canceling reservation: %v", err)
 		return err
 	}
-	return err
+	s.notifyCustomerCancellation(code)
+	return nil
+}
+
+func (s *AdminService) notifyCustomerCancellation(code string) {
+	reservationResponse, err := s.adminRepo.FindReservationByCode(code)
+	if err != nil {
+		log.Printf("Error getting reservation %s for cancellation email: %v", code, err)
+		return
+	}
+	statusTraducido := s.senderService.StatusTranslation(statusCancel, reservationResponse.Language)
+	s.senderService.SendReservationEmail(*reservationResponse, statusTraducido)
 }
 
 func (s *AdminService) ListVehicleSpaces() ([]db.VehicleSpaceWithPrices, error) {

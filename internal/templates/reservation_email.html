@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GreenParking Reservation Confirmation</title>
+    <title>GreenParking Reservation</title>
     <style>
         /* General styles - many email clients override or ignore these, so inline styles are also used */
         body {
@@ -71,8 +71,24 @@
 
     <div class="content">
         {{if .IsAdmin}}
-            <h2 style="color: #333333; font-size: 1.3em;">Nuova prenotazione confermata</h2>
-            <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">C'è una nuova prenotazione su <strong>GreenParking</strong> e il pagamento è già stato effettuato. Lo stato è <strong>{{.Status}}</strong>.</p>
+            {{if .IsCancellation}}
+                <h2 style="color: #333333; font-size: 1.3em;">Prenotazione annullata dal cliente</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Un cliente ha annullato una prenotazione su <strong>GreenParking</strong>. Lo stato è <strong>{{.Status}}</strong>.</p>
+            {{else}}
+                <h2 style="color: #333333; font-size: 1.3em;">Nuova prenotazione confermata</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">C'è una nuova prenotazione su <strong>GreenParking</strong> e il pagamento è già stato effettuato. Lo stato è <strong>{{.Status}}</strong>.</p>
+            {{end}}
+        {{else if .IsCancellation}}
+            {{if eq .Language "es"}}
+                <h2 style="color: #333333; font-size: 1.3em;">Hola {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Te informamos que tu reserva en <strong>GreenParking</strong> ha sido <strong>cancelada</strong>.</p>
+            {{else if eq .Language "it"}}
+                <h2 style="color: #333333; font-size: 1.3em;">Ciao {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Ti informiamo che la tua prenotazione presso <strong>GreenParking</strong> è stata <strong>annullata</strong>.</p>
+            {{else}}
+                <h2 style="color: #333333; font-size: 1.3em;">Hello {{.UserName}},</h2>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">We inform you that your reservation at <strong>GreenParking</strong> has been <strong>canceled</strong>.</p>
+            {{end}}
         {{else}}
             {{if eq .Language "es"}}
                 <h2 style="color: #333333; font-size: 1.3em;">Hola {{.UserName}},</h2>
@@ -115,6 +131,14 @@
 
         {{if .IsAdmin}}
             <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Questo avviso è per l'amministratore del parcheggio.</p>
+        {{else if .IsCancellation}}
+            {{if eq .Language "es"}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Si no solicitaste esta cancelación o tienes alguna consulta, contáctanos.</p>
+            {{else if eq .Language "it"}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Se non hai richiesto tu questa cancellazione o hai domande, contattaci.</p>
+            {{else}}
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">If you did not request this cancellation or have any questions, please contact us.</p>
+            {{end}}
         {{else}}
             {{if eq .Language "es"}}
                 <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Te esperamos. Gracias por elegir GreenParking.</p>

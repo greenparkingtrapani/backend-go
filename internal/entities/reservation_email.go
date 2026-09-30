@@ -13,4 +13,5 @@ type ReservationEmailData struct {
 	Language           string
 	Status             string
 	IsAdmin            bool
+	IsCancellation     bool
 }

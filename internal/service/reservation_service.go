@@ -210,7 +210,11 @@ func (s *ReservationService) CancelReservation(code string) error {
 	sessionID := reservation.StripeSessionID.String
 	if sessionID == "" {
 		_, err = s.Repo.CancelReservation(code)
-		return err
+		if err != nil {
+			return err
+		}
+		s.notifyCustomerAndAdminCancellation(reservationResponseFromDB(reservation))
+		return nil
 	}
 
 	// If reservation has a Stripe session ID
@@ -232,10 +236,37 @@ func (s *ReservationService) CancelReservation(code string) error {
 		return err
 	}
 
-	statusTraducido := s.senderService.StatusTranslation(statusCancel, reservationResp.Language)
-	s.senderService.SendReservationSMS(*reservationResp, statusTraducido)
-	s.senderService.SendReservationEmail(*reservationResp, statusTraducido)
+	s.notifyCustomerAndAdminCancellation(*reservationResp)
 	return nil
+}
+
+func (s *ReservationService) notifyCustomerAndAdminCancellation(reservationResp entities.ReservationResponse) {
+	statusTraducido := s.senderService.StatusTranslation(statusCancel, reservationResp.Language)
+	s.senderService.SendReservationSMS(reservationResp, statusTraducido)
+	s.senderService.SendReservationEmail(reservationResp, statusTraducido)
+	s.senderService.SendAdminReservationEmail(reservationResp, statusCancel)
+}
+
+func reservationResponseFromDB(reservation *db.Reservation) entities.ReservationResponse {
+	return entities.ReservationResponse{
+		Code:            reservation.Code,
+		UserName:        reservation.UserName,
+		UserEmail:       reservation.UserEmail,
+		UserPhone:       reservation.UserPhone.String,
+		VehicleTypeID:   reservation.VehicleTypeID,
+		VehiclePlate:    reservation.VehiclePlate.String,
+		VehicleModel:    reservation.VehicleModel.String,
+		PaymentMethodID: reservation.PaymentMethodID,
+		Status:          reservation.Status,
+		StartTime:       reservation.StartTime,
+		EndTime:         reservation.EndTime,
+		CreatedAt:       reservation.CreatedAt,
+		UpdatedAt:       reservation.UpdatedAt,
+		PaymentStatus:   reservation.PaymentStatus.String,
+		Language:        reservation.Language,
+		TotalPrice:      float32(reservation.TotalPrice.Float64),
+		DepositPayment:  float32(reservation.DepositPayment.Float64),
+	}
 }
 
 func (s *ReservationService) GetReservationBySessionID(sessionID string) (*entities.ReservationResponse, error) {
