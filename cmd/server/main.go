@@ -23,7 +23,7 @@ import (
 func initStripe() {
 	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
 	if stripeSecretKey == "" {
-		log.Fatal("STRIPE_SECRET_KEY no está configurada.")
+		log.Fatal("STRIPE_SECRET_KEY no estÃ¡ configurada.")
 	}
 	stripe.Key = stripeSecretKey
 }
@@ -132,7 +132,6 @@ func main() {
 	r.HandleFunc("/api/reservations/{code}", userReservationHandler.CancelReservation).Methods("DELETE", "OPTIONS")
 
 	// Admin login
-	r.HandleFunc("/api/login", adminAuthHandler.CreateUserAdmin).Methods("POST", "OPTIONS")
 	r.HandleFunc("/admin/login", adminAuthHandler.Login).Methods("POST", "OPTIONS")
 
 	// Admin endpoints (protected)
