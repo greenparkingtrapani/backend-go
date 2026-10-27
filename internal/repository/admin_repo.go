@@ -19,7 +19,7 @@ func NewAdminRepository(db *sql.DB) *AdminRepository {
 	return &AdminRepository{DB: db}
 }
 
-func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder string) (reservationsList entities.ReservationsList, err error) {
+func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder, view string) (reservationsList entities.ReservationsList, err error) {
 	loc, _ := time.LoadLocation("Europe/Rome") // Horario de Italia
 
 	// Build WHERE clause
@@ -88,6 +88,34 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 		idx++
 	}
 
+	// GREENPARKING_AGENDA_V1: viste server-side, con filtri e paginazione coerenti.
+	// Il fuso Europe/Rome viene usato anche durante il cambio ora legale/solare.
+	now := time.Now()
+	todayLocal := now.In(loc)
+	startToday := time.Date(todayLocal.Year(), todayLocal.Month(), todayLocal.Day(), 0, 0, 0, 0, loc)
+	startTomorrow := startToday.AddDate(0, 0, 1)
+	switch view {
+	case "today":
+		whereClause += " AND r.status NOT IN ('finished', 'canceled')"
+		whereClause += " AND r.start_time < $" + strconv.Itoa(idx)
+		args = append(args, startTomorrow.UTC())
+		idx++
+		whereClause += " AND r.end_time > $" + strconv.Itoa(idx)
+		args = append(args, startToday.UTC())
+		idx++
+	case "upcoming":
+		whereClause += " AND r.status NOT IN ('finished', 'canceled')"
+		whereClause += " AND r.start_time >= $" + strconv.Itoa(idx)
+		args = append(args, startTomorrow.UTC())
+		idx++
+	case "archive":
+		whereClause += " AND (r.status IN ('finished', 'canceled') OR r.end_time <= $" + strconv.Itoa(idx) + ")"
+		args = append(args, now.UTC())
+		idx++
+	default:
+		// "all": mantieni tutte le prenotazioni.
+	}
+
 	// Main query
 	query := `
 	SELECT
@@ -125,6 +153,10 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 		query += " ORDER BY " + column + " " + direction + ", " + paymentStatusOrder + " " + direction + ", r.id " + direction
 	} else if requestedSort {
 		query += " ORDER BY " + column + " " + direction + ", r.id " + direction
+	} else if view == "today" || view == "upcoming" {
+		query += " ORDER BY r.start_time ASC, r.id ASC"
+	} else if view == "archive" {
+		query += " ORDER BY r.end_time DESC, r.id DESC"
 	} else if startTime != "" {
 		query += " ORDER BY r.start_time DESC, r.id DESC"
 	} else if endTime != "" {
@@ -281,4 +313,18 @@ func (r *AdminRepository) UpdateVehiclePrice(vehicleType string, timeName string
 	`
 	_, err := r.DB.Exec(query, vehicleType, timeName, price)
 	return err
+}
+
+// GREENPARKING_DELETE_V1: only completed/canceled reservations without any successful/refunded payment may be purged.
+func (r *AdminRepository) PurgeUnpaidClosedReservation(code string) (bool, error) {
+	result, err := r.DB.Exec(
+		`DELETE FROM reservations
+     WHERE code = $1 AND status IN ('finished', 'canceled')
+       AND COALESCE(payment_status, '') NOT IN ('succeeded', 'refunded', 'paid')
+       AND NULLIF(stripe_session_id, '') IS NULL`, code)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
 }

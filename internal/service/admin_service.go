@@ -25,8 +25,8 @@ func NewAdminService(adminRepo *repository.AdminRepository, reservationRepo *rep
 		senderService:   senderService}
 }
 
-func (s *AdminService) ListReservations(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder string) (entities.ReservationsList, error) {
-	reservationList, err := s.adminRepo.ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder)
+func (s *AdminService) ListReservations(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder, view string) (entities.ReservationsList, error) {
+	reservationList, err := s.adminRepo.ListReservationsWithFilters(startTime, endTime, code, vehicleType, status, limit, offset, sortBy, sortOrder, view)
 	if err != nil {
 		log.Printf("Error listing reservations: %v", err)
 		return entities.ReservationsList{}, err
@@ -139,4 +139,9 @@ func (s *AdminService) UpdateVehicleSpacesAndPrices(vehicleType string, spaces i
 		}
 	}
 	return nil
+}
+
+// GREENPARKING_DELETE_V1: no Stripe refund, no status mutation; protected purge only.
+func (s *AdminService) PurgeReservation(code string) (bool, error) {
+	return s.adminRepo.PurgeUnpaidClosedReservation(code)
 }

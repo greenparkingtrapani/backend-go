@@ -74,13 +74,12 @@ func main() {
 		}
 	}
 
-
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
 	safeURL := dbURL
-	if len(dbURL) > 30 { 
+	if len(dbURL) > 30 {
 		safeURL = dbURL[:15] + "...[oculto]..." + dbURL[len(dbURL)-40:]
 	}
 	log.Printf("Intentando conectar a DB: %s", safeURL)
@@ -140,6 +139,8 @@ func main() {
 	adminRouter.HandleFunc("/reservations", adminHandler.ListReservations).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/reservations", adminHandler.CreateReservation).Methods("POST", "OPTIONS")
 	adminRouter.HandleFunc("/reservations/{code}", adminHandler.AdminDeleteReservation).Methods("DELETE", "OPTIONS")
+	// GREENPARKING_DELETE_V1: protected, explicit confirmation, no refunds
+	adminRouter.HandleFunc("/reservations/{code}/purge", adminHandler.PurgeReservation).Methods("POST", "OPTIONS")
 	adminRouter.HandleFunc("/vehicle-config", adminHandler.ListVehicleSpaces).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/vehicle-config/{vehicle_type}", adminHandler.UpdateVehicleSpaces).Methods("PUT", "OPTIONS")
 

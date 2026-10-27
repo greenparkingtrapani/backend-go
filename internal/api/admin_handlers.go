@@ -29,8 +29,9 @@ func (h *AdminHandler) ListReservations(w http.ResponseWriter, r *http.Request) 
 	offset := r.URL.Query().Get("offset")
 	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
+	view := r.URL.Query().Get("view")
 
-	reservations, err := h.adminService.ListReservations(startTimeStr, endTimeStr, code, vehicleType, status, limit, offset, sortBy, sortOrder)
+	reservations, err := h.adminService.ListReservations(startTimeStr, endTimeStr, code, vehicleType, status, limit, offset, sortBy, sortOrder, view)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -101,4 +102,27 @@ func (h *AdminHandler) UpdateVehicleSpaces(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"message": "Vehicle spaces and prices updated"})
+}
+
+// GREENPARKING_DELETE_V1: admin-only physical deletion, requiring a matching confirmation code.
+func (h *AdminHandler) PurgeReservation(w http.ResponseWriter, r *http.Request) {
+	code := mux.Vars(r)["code"]
+	var payload struct {
+		ConfirmCode string `json:"confirm_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.ConfirmCode != code || code == "" {
+		http.Error(w, "Confirmation code does not match", http.StatusBadRequest)
+		return
+	}
+	deleted, err := h.adminService.PurgeReservation(code)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "Only canceled or finished unpaid reservations can be permanently deleted", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Reservation permanently deleted"})
 }
