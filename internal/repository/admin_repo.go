@@ -44,7 +44,7 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 		if err != nil {
 			return reservationsList, err
 		}
-		endTimeUTC = endDateLocal.Add(24 * time.Hour).UTC() // Fin del día (exclusivo)
+		endTimeUTC = endDateLocal.Add(24 * time.Hour).UTC() // Fin del dÃ­a (exclusivo)
 	}
 
 	if startTime != "" && endTime != "" {
@@ -109,7 +109,7 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 		args = append(args, startTomorrow.UTC())
 		idx++
 	case "archive":
-		whereClause += " AND (r.status IN ('finished', 'canceled') OR r.end_time <= $" + strconv.Itoa(idx) + ")"
+		whereClause += " AND (r.status IN ('pending', 'finished', 'canceled') OR r.end_time <= $" + strconv.Itoa(idx) + ")"
 		args = append(args, now.UTC())
 		idx++
 	default:
@@ -319,7 +319,7 @@ func (r *AdminRepository) UpdateVehiclePrice(vehicleType string, timeName string
 func (r *AdminRepository) PurgeUnpaidClosedReservation(code string) (bool, error) {
 	result, err := r.DB.Exec(
 		`DELETE FROM reservations
-     WHERE code = $1 AND status IN ('finished', 'canceled')
+     WHERE code = $1 AND status IN ('pending', 'finished', 'canceled')
        AND COALESCE(payment_status, '') NOT IN ('succeeded', 'refunded', 'paid')
        AND NULLIF(stripe_session_id, '') IS NULL`, code)
 	if err != nil {
