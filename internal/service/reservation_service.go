@@ -116,33 +116,33 @@ func (s *ReservationService) CheckAvailability(req entities.ReservationRequest) 
 }
 
 func (s *ReservationService) GetTotalPriceForReservation(vehicleTypeID int, startTime, endTime time.Time) (*entities.TotalPriceResponse, error) {
-	if !endTime.After(startTime) {
-		return nil, fmt.Errorf("end_time must be after start_time")
-	}
-	days, hours := getUnitCounts(startTime, endTime)
+    if !endTime.After(startTime) {
+        return nil, fmt.Errorf("end_time must be after start_time")
+    }
 
-	priceHour, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeHour)
-	if err != nil {
-		log.Printf("Error from GetPriceForUnit (hour): %v", err)
-		return nil, fmt.Errorf("could not get price per hour: %w", err)
-	}
-	priceDay, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeDaily)
-	if err != nil {
-		log.Printf("Error from GetPriceForUnit (day): %v", err)
-		return nil, fmt.Errorf("could not get price per day: %w", err)
-	}
+    days, hours := getUnitCounts(startTime, endTime)
 
-	result := float32(days)*priceDay + float32(hours)*priceHour
-	discount := days >= discountThresholdDays
-	if discount {
-		result = result * (1 - discountRate)
-	}
-	result = float32(int(result*10)) / 10
+    priceHour, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeHour)
+    if err != nil {
+        return nil, fmt.Errorf("could not get hourly price: %w", err)
+    }
 
-	return &entities.TotalPriceResponse{
-		TotalPrice: result,
-		Discount:   discount,
-	}, nil
+    priceDay, err := s.Repo.GetPriceForUnit(vehicleTypeID, reservationTimeDaily)
+    if err != nil {
+        return nil, fmt.Errorf("could not get daily price: %w", err)
+    }
+
+    remainingPrice := float32(hours) * priceHour
+    if remainingPrice > priceDay {
+        remainingPrice = priceDay
+    }
+
+    result := float32(days)*priceDay + remainingPrice
+
+    return &entities.TotalPriceResponse{
+        TotalPrice: result,
+        Discount: false,
+    }, nil
 }
 
 func (s *ReservationService) CreateReservation(req *entities.ReservationRequest) (*entities.StripeSessionResponse, error) {
@@ -336,7 +336,7 @@ func (s *ReservationService) handlePaymentIntent(req *entities.ReservationReques
 	} else if req.PaymentMethodID == 1 { // onsite
 		amount = int64(float64(req.TotalPrice) * deposit * 100)
 	} else {
-		return "", fmt.Errorf("Método de pago no soportado")
+		return "", fmt.Errorf("MÃ©todo de pago no soportado")
 	}
 
 	sessionURL, sessionID, err := s.stripeService.CreateCheckoutSession(amount, "eur", req.UserEmail, reservation.Language)
