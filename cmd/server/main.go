@@ -23,7 +23,7 @@ import (
 func initStripe() {
 	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
 	if stripeSecretKey == "" {
-		log.Fatal("STRIPE_SECRET_KEY no estÃ¡ configurada.")
+		log.Fatal("STRIPE_SECRET_KEY no estÃƒÂ¡ configurada.")
 	}
 	stripe.Key = stripeSecretKey
 }
@@ -150,6 +150,8 @@ func main() {
 	frontendURL := os.Getenv("FRONTEND_URL")
 	allowedOrigins := handlers.AllowedOrigins([]string{
 		frontendURL,
+		"https://greenparkingtrapani.it",
+		"https://www.greenparkingtrapani.it",
 	})
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "X-Requested-With"})
