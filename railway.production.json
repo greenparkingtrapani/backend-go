@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "go build -o main ./cmd/server"
+  },
+  "deploy": {
+    "startCommand": "./main",
+    "preDeployCommand": []
+  }
+}
