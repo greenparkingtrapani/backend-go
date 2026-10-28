@@ -189,6 +189,13 @@ func (s *ReservationService) CreateReservation(req *entities.ReservationRequest)
 		log.Printf("Error creating onsite reservation in repository: %v", err)
 		return nil, err
 	}
+	// Onsite bookings have no Stripe webhook; notify after persisting the booking.
+	if s.senderService != nil {
+		confirmation := reservationResponseFromDB(reservation)
+		status := s.senderService.StatusTranslation(statusActive, confirmation.Language)
+		s.senderService.SendReservationEmail(confirmation, status)
+		s.senderService.SendAdminReservationEmail(confirmation, statusActive)
+	}
 	return &entities.StripeSessionResponse{Code: code, URL: "", SessionID: ""}, nil
 }
 
