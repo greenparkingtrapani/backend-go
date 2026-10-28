@@ -5,9 +5,7 @@ import (
 	"errors"
 	"estacionamienti/internal/db"
 	"estacionamienti/internal/entities"
-	"estacionamienti/internal/utils"
 	"fmt"
-	"github.com/lib/pq"
 	"time"
 )
 
@@ -78,96 +76,81 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 	if !endTime.After(startTime) {
 		return nil, fmt.Errorf("end time must be after start time")
 	}
-
-	vehicleTypes, err := r.GetVehicleTypes()
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch vehicle types: %w", err)
-	}
-	// Compose slice of IDs sharing the pool
-	var vtList []struct {
-		ID   int
-		Name string
-	}
-	for _, vt := range vehicleTypes {
-		vtList = append(vtList, struct {
-			ID   int
-			Name string
-		}{vt.ID, vt.Name})
-	}
-	idsForPool := utils.VehicleTypeIDsForSpace(vtList, vehicleTypeName)
-	if len(idsForPool) == 0 {
-		return nil, fmt.Errorf("no vehicle type ids found for pool")
+	if vehicleTypeName != "car" && vehicleTypeName != "suv" && vehicleTypeName != "motorcycle" {
+		return nil, fmt.Errorf("unknown vehicle type %d", vehicleTypeID)
 	}
 
+	// Count active cars and motorcycles in the same physical space for each hour.
+	// Capacity: three COMPLETE motorcycles consume one car bay; 1-2 consume none.
 	query := `
 		WITH requested_slots AS (
-			SELECT
-				gs.slot_hour_start,
-				gs.slot_hour_start + interval '1 hour' AS slot_hour_end
+			SELECT gs.slot_hour_start, gs.slot_hour_start + interval '1 hour' AS slot_hour_end
 			FROM generate_series(
-				$1::timestamptz, -- startTime
-				$2::timestamptz - interval '1 hour', -- endTime
+				date_trunc('hour', $1::timestamptz),
+				$2::timestamptz - interval '1 microsecond',
 				interval '1 hour'
 			) AS gs(slot_hour_start)
 		),
-		total_spaces_for_type AS (
-		  SELECT COALESCE(spaces, 0) AS spaces
-		  FROM vehicle_spaces
-		  WHERE vehicle_type_id = $3
+		capacities AS (
+			SELECT
+				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name IN ('car', 'suv')), 0) AS car_spaces,
+				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name = 'motorcycle'), 0) AS moto_spaces
+			FROM vehicle_spaces vs
+			JOIN vehicle_types vt ON vt.id = vs.vehicle_type_id
+		),
+		occupancy AS (
+			SELECT rs.slot_hour_start, rs.slot_hour_end,
+				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'suv'))::int AS cars,
+				COUNT(r.id) FILTER (WHERE vt.name = 'motorcycle')::int AS motos
+			FROM requested_slots rs
+			LEFT JOIN reservations r ON r.status = 'active'
+				AND r.start_time < rs.slot_hour_end AND r.end_time > rs.slot_hour_start
+			LEFT JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
+			GROUP BY rs.slot_hour_start, rs.slot_hour_end
 		)
-		SELECT
-			rs.slot_hour_start,
-			rs.slot_hour_end,
-			COALESCE((SELECT spaces FROM total_spaces_for_type), 0) AS total_spaces,
-			COUNT(r.id) AS booked_spaces
-		FROM requested_slots rs
-		LEFT JOIN reservations r
-			ON r.vehicle_type_id = ANY($4)
-			AND r.status = 'active'
-			AND r.start_time < rs.slot_hour_end
-			AND r.end_time > rs.slot_hour_start
-		GROUP BY rs.slot_hour_start, rs.slot_hour_end
-		ORDER BY rs.slot_hour_start;
-    `
-
-	// $3 is the mapped vehicle_type_id for vehicle_spaces, $4 is the array of ids for reservations
-	mappedVehicleTypeID := utils.MapVehicleTypeIDForSpace(vehicleTypeID, vehicleTypeName)
-	rows, err := r.DB.Query(query, startTime, endTime, mappedVehicleTypeID, pq.Array(idsForPool))
+		SELECT o.slot_hour_start, o.slot_hour_end,
+			c.car_spaces, c.moto_spaces, o.cars, o.motos
+		FROM occupancy o CROSS JOIN capacities c
+		ORDER BY o.slot_hour_start
+	`
+	rows, err := r.DB.Query(query, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("error querying hourly availability: %w", err)
 	}
 	defer rows.Close()
 
 	var results []SlotOccupationInfo
-	var hasTotalSpacesEntry bool
-
 	for rows.Next() {
-		var soi SlotOccupationInfo
-		err := rows.Scan(&soi.SlotStart, &soi.SlotEnd, &soi.TotalSpaces, &soi.BookedSpaces)
-		if err != nil {
+		var slot SlotOccupationInfo
+		var carSpaces, motoSpaces, cars, motos int
+		if err := rows.Scan(&slot.SlotStart, &slot.SlotEnd, &carSpaces, &motoSpaces, &cars, &motos); err != nil {
 			return nil, fmt.Errorf("error scanning hourly availability slot: %w", err)
 		}
-		results = append(results, soi)
-		if !hasTotalSpacesEntry && soi.TotalSpaces > 0 {
-			hasTotalSpacesEntry = true
-		}
+		slot.TotalSpaces, slot.BookedSpaces = effectiveSpaces(vehicleTypeName, carSpaces, motoSpaces, cars, motos)
+		results = append(results, slot)
 	}
-
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error after iterating hourly availability rows: %w", err)
 	}
-
-	// Una verificación más robusta para "tipo de vehículo no configurado":
-	var configuredSpaces sql.NullInt64
-	err = r.DB.QueryRow("SELECT spaces FROM vehicle_spaces WHERE vehicle_type_id = $1", mappedVehicleTypeID).Scan(&configuredSpaces)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return []SlotOccupationInfo{}, fmt.Errorf("vehicle type %d not configured in vehicle_spaces", mappedVehicleTypeID)
-		}
-		return nil, fmt.Errorf("error checking vehicle space configuration: %w", err)
-	}
-
 	return results, nil
+}
+
+// Only each complete group of three motorcycles removes one car space.
+// For a new motorcycle, the current motorcycle count must still be below the
+// effective maximum, which accounts for the car bay used by motorcycle #3/#6.
+func effectiveSpaces(vehicle string, carCapacity, motoCapacity, cars, motos int) (total, occupied int) {
+	if vehicle == "motorcycle" {
+		freeCarBays := carCapacity - cars
+		if freeCarBays < 0 {
+			freeCarBays = 0
+		}
+		maxMotos := freeCarBays*3 + 2
+		if motoCapacity < maxMotos {
+			maxMotos = motoCapacity
+		}
+		return maxMotos, motos
+	}
+	return carCapacity, cars + motos/3
 }
 
 func (r *ReservationRepository) GetPriceForUnit(vehicleTypeID int, reservationTimeID int) (float32, error) {
