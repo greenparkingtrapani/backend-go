@@ -110,6 +110,7 @@ func main() {
 	adminHandler := api.NewAdminHandler(adminSvc)
 	adminAuthHandler := api.NewAdminAuthHandler(adminAuthSvc)
 	siteContentHandler := &api.SiteContentHandler{DB: db}
+	luggageHandler := &api.LuggageHandler{DB: db}
 	stripeHandler := api.NewStripeWebhookHandler(os.Getenv("STRIPE_WEBHOOK_SECRET"), reservationSvc, senderService)
 
 	// Cron scheduler setup
@@ -131,6 +132,7 @@ func main() {
 	// Public endpoints
 	r.HandleFunc("/api/prices", userReservationHandler.GetPrices).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/site-content", siteContentHandler.Read).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/luggage-requests", luggageHandler.Create).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/vehicle-types", userReservationHandler.GetVehicleTypes).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/availability", userReservationHandler.CheckAvailability).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/total-price", userReservationHandler.GetTotalPriceForReservation).Methods("GET", "OPTIONS")
@@ -146,6 +148,8 @@ func main() {
 	adminRouter := r.PathPrefix("/admin").Subrouter()
 	adminRouter.Use(auth.AdminAuthMiddleware)
 	adminRouter.HandleFunc("/site-content", siteContentHandler.Save).Methods("PUT", "OPTIONS")
+	adminRouter.HandleFunc("/luggage", luggageHandler.List).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/luggage/{code}", luggageHandler.Update).Methods("PATCH", "OPTIONS")
 	adminRouter.HandleFunc("/reservations", adminHandler.ListReservations).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/reservations", adminHandler.CreateReservation).Methods("POST", "OPTIONS")
 	adminRouter.HandleFunc("/reservations/{code}", adminHandler.AdminDeleteReservation).Methods("DELETE", "OPTIONS")
@@ -163,7 +167,7 @@ func main() {
 		"https://greenparkingtrapani.it",
 		"https://www.greenparkingtrapani.it",
 	})
-	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
+	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "X-Requested-With"})
 
 	port := os.Getenv("PORT")
