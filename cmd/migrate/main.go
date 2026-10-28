@@ -29,5 +29,8 @@ func main() {
 	if err := db.MigrateSiteContent(ctx, database); err != nil {
 		log.Fatalf("site content migration failed: %v", err)
 	}
+	if err := db.MigrateLuggageRequests(ctx, database); err != nil {
+		log.Fatalf("luggage migration failed: %v", err)
+	}
 	log.Print("site content migration completed")
 }
