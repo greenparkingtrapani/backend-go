@@ -112,6 +112,7 @@ func main() {
 	userReservationHandler := api.NewUserReservationHandler(reservationSvc)
 	adminHandler := api.NewAdminHandler(adminSvc)
 	adminAuthHandler := api.NewAdminAuthHandler(adminAuthSvc)
+	siteContentHandler := &api.SiteContentHandler{DB: db}
 	stripeHandler := api.NewStripeWebhookHandler(os.Getenv("STRIPE_WEBHOOK_SECRET"), reservationSvc, senderService)
 
 	// Cron scheduler setup
@@ -122,6 +123,7 @@ func main() {
 
 	// Public endpoints
 	r.HandleFunc("/api/prices", userReservationHandler.GetPrices).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/site-content", siteContentHandler.Read).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/vehicle-types", userReservationHandler.GetVehicleTypes).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/availability", userReservationHandler.CheckAvailability).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/total-price", userReservationHandler.GetTotalPriceForReservation).Methods("GET", "OPTIONS")
@@ -136,6 +138,7 @@ func main() {
 	// Admin endpoints (protected)
 	adminRouter := r.PathPrefix("/admin").Subrouter()
 	adminRouter.Use(auth.AdminAuthMiddleware)
+	adminRouter.HandleFunc("/site-content", siteContentHandler.Save).Methods("PUT", "OPTIONS")
 	adminRouter.HandleFunc("/reservations", adminHandler.ListReservations).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/reservations", adminHandler.CreateReservation).Methods("POST", "OPTIONS")
 	adminRouter.HandleFunc("/reservations/{code}", adminHandler.AdminDeleteReservation).Methods("DELETE", "OPTIONS")
