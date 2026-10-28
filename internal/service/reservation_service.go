@@ -146,8 +146,26 @@ func (s *ReservationService) GetTotalPriceForReservation(vehicleTypeID int, star
 }
 
 func (s *ReservationService) CreateReservation(req *entities.ReservationRequest) (*entities.StripeSessionResponse, error) {
+	// Temporary business policy: accept bookings without any online payment or Stripe session.
+	// Enforce this on the server as well as in the UI, to prevent old clients charging cards.
+	if req.PaymentMethodID != 1 {
+		return nil, fmt.Errorf("online payments are temporarily disabled; choose payment on arrival")
+	}
+	if req.StartTime.Before(time.Now().Add(-10*time.Minute)) || !req.EndTime.After(req.StartTime) {
+		return nil, fmt.Errorf("invalid reservation dates")
+	}
+	availability, err := s.CheckAvailability(*req)
+	if err != nil {
+		return nil, err
+	}
+	if !availability.IsOverallAvailable {
+		return nil, fmt.Errorf("no parking spaces available for the requested dates")
+	}
+	quote, err := s.GetTotalPriceForReservation(req.VehicleTypeID, req.StartTime, req.EndTime)
+	if err != nil {
+		return nil, err
+	}
 	code := fmt.Sprintf("%08X", time.Now().UnixNano()%100000000)
-
 	reservation := &db.Reservation{
 		Code:            code,
 		UserName:        req.UserName,
@@ -156,33 +174,22 @@ func (s *ReservationService) CreateReservation(req *entities.ReservationRequest)
 		VehicleTypeID:   req.VehicleTypeID,
 		VehiclePlate:    sql.NullString{String: req.VehiclePlate, Valid: req.VehiclePlate != ""},
 		VehicleModel:    sql.NullString{String: req.VehicleModel, Valid: req.VehicleModel != ""},
-		PaymentMethodID: req.PaymentMethodID,
-		Status:          statusPending,
+		PaymentMethodID: 1,
+		Status:          statusActive,
 		StartTime:       req.StartTime,
 		EndTime:         req.EndTime,
 		Language:        req.Language,
-		TotalPrice:      sql.NullFloat64{Float64: float64(req.TotalPrice), Valid: req.TotalPrice != 0},
-		DepositPayment:  sql.NullFloat64{Float64: float64(req.DepositPayment), Valid: req.DepositPayment != 0},
+		TotalPrice:      sql.NullFloat64{Float64: float64(quote.TotalPrice), Valid: true},
+		DepositPayment:  sql.NullFloat64{},
+		PaymentStatus:   sql.NullString{String: statusPending, Valid: true},
 		CreatedAt:       time.Now().UTC(),
 		UpdatedAt:       time.Now().UTC(),
 	}
-
-	sessionURL, err := s.handlePaymentIntent(req, reservation)
-	if err != nil {
-		log.Printf("Error from handlePaymentIntent: %v", err)
+	if err := s.Repo.CreateReservation(reservation); err != nil {
+		log.Printf("Error creating onsite reservation in repository: %v", err)
 		return nil, err
 	}
-
-	err = s.Repo.CreateReservation(reservation)
-	if err != nil {
-		log.Printf("Error creating reservation in repository: %v", err)
-		return nil, err
-	}
-
-	return &entities.StripeSessionResponse{
-		Code:      code,
-		URL:       sessionURL,
-		SessionID: reservation.StripeSessionID.String}, nil
+	return &entities.StripeSessionResponse{Code: code, URL: "", SessionID: ""}, nil
 }
 
 func (s *ReservationService) GetReservationByCode(code, email string) (*entities.ReservationResponse, error) {
