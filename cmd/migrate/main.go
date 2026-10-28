@@ -12,7 +12,7 @@ import (
 
 func main() {
 	// Fail closed: this command is authorized for staging only.
-	if os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "staging" {
+	if os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "staging" || os.Getenv("RAILWAY_PROJECT_ID") != "f74a2555-8202-40db-84f4-71df97ee4b58" || os.Getenv("RAILWAY_ENVIRONMENT_ID") != "e621aab4-c0d4-4b4c-99df-3f0df64dd4f4" {
 		log.Fatal("migration requires RAILWAY_ENVIRONMENT_NAME=staging")
 	}
 	url := os.Getenv("DATABASE_URL")
