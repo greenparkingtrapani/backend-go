@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"estacionamienti/internal/api"
 	"estacionamienti/internal/auth"
@@ -78,11 +79,7 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
-	safeURL := dbURL
-	if len(dbURL) > 30 {
-		safeURL = dbURL[:15] + "...[oculto]..." + dbURL[len(dbURL)-40:]
-	}
-	log.Printf("Intentando conectar a DB: %s", safeURL)
+	log.Print("Connecting to configured database")
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -120,6 +117,16 @@ func main() {
 	_ = setupUpdateFinishedReservationsCron(jobSvc)
 
 	r := mux.NewRouter()
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	}).Methods("GET")
 
 	// Public endpoints
 	r.HandleFunc("/api/prices", userReservationHandler.GetPrices).Methods("GET", "OPTIONS")
