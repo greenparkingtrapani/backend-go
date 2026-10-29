@@ -32,5 +32,8 @@ func main() {
 	if err := db.MigrateLuggageRequests(ctx, database); err != nil {
 		log.Fatalf("luggage migration failed: %v", err)
 	}
-	log.Print("site content migration completed")
+	if err := db.MigrateVehicleCategories(ctx, database); err != nil {
+  log.Fatalf("vehicle category migration failed: %v", err)
+ }
+ log.Print("site content and vehicle category migrations completed")
 }
