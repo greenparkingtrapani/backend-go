@@ -76,7 +76,7 @@
                 <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">Un cliente ha annullato una prenotazione su <strong>GreenParking</strong>. Lo stato è <strong>{{.Status}}</strong>.</p>
             {{else}}
                 <h2 style="color: #333333; font-size: 1.3em;">Nuova prenotazione confermata</h2>
-                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">C'è una nuova prenotazione su <strong>GreenParking</strong>. La prenotazione è <strong>{{.Status}}</strong>, ma il pagamento in loco è <strong style="color:#b45309;">DA INCASSARE AL PARCHEGGIO</strong>. Verificare e registrare l'incasso all'arrivo del cliente.</p>
+                <p style="line-height: 1.6; font-size: 1em; margin: 10px 0;">C'è una nuova prenotazione su <strong>GreenParking</strong>. La prenotazione è <strong>{{.Status}}</strong>. Stato pagamento: {{if .PaymentOutstanding}}<strong style="color:#b45309;">{{.PaymentNotice}}</strong>. Verificare e registrare l'incasso all'arrivo del cliente.{{else if .PaymentPaid}}<strong style="color:#15803d;">{{.PaymentNotice}}</strong>.{{else}}<strong style="color:#b45309;">{{.PaymentNotice}}</strong>.{{end}}</p>
             {{end}}
         {{else if .IsCancellation}}
             {{if eq .Language "es"}}
