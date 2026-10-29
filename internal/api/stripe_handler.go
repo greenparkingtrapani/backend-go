@@ -90,6 +90,9 @@ func (h *StripeWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Requ
    return
   }
   if changed {
+   // Activation has committed the payment: notifications must use the new state.
+   reservation.Status = active
+   reservation.PaymentStatus = statusSucceeded
    statusTranslated := h.senderService.StatusTranslation(confirmed,reservation.Language)
    h.senderService.SendReservationSMS(*reservation,statusTranslated)
    h.senderService.SendReservationEmail(*reservation,statusTranslated)
