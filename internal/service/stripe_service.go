@@ -4,6 +4,7 @@ import (
 	"estacionamienti/internal/repository"
 	"os"
 	"fmt"
+"time"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/checkout/session"
 	"github.com/stripe/stripe-go/v82/refund"
@@ -50,6 +51,7 @@ func (s *StripeService) CreateCheckoutSession(amount int64, currency, customerEm
 			},
 		},
 		Mode:          stripe.String(string(stripe.CheckoutSessionModePayment)),
+        ExpiresAt: stripe.Int64(time.Now().Add(31*time.Minute).Unix()),
 		SuccessURL: stripe.String(frontendURL + "/" + language + "/reservations/create/?session_id={CHECKOUT_SESSION_ID}"),
 		CancelURL:  stripe.String(frontendURL + "/" + language + "/reservations/create/failed"),
 		CustomerEmail: stripe.String(customerEmail),
@@ -61,4 +63,9 @@ func (s *StripeService) CreateCheckoutSession(amount int64, currency, customerEm
 		return "", "", err
 	}
 	return sess.URL, sess.ID, nil
+}
+
+func (s *StripeService) ExpireCheckoutSession(sessionID string) error {
+ _, err := session.Expire(sessionID, nil)
+ return err
 }
