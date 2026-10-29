@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [staging]
   push:
-    branches: [fix/stripe-checkout-safe-20261029, feat/reservation-content-editor-20261029, feat/vehicle-sizes-ebike-20261029, fix/cms-live-publish-20261029, fix/confirmation-and-bikes-20261029]
+    branches: [fix/stripe-checkout-safe-20261029, feat/reservation-content-editor-20261029, feat/vehicle-sizes-ebike-20261029, fix/cms-live-publish-20261029, fix/confirmation-and-bikes-20261029, test/resend-delivery-20261029]
 jobs:
   test:
     runs-on: ubuntu-latest
