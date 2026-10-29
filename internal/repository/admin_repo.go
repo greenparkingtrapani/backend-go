@@ -119,8 +119,8 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 	// Main query
 	query := `
 	SELECT
-		r.code, r.user_name, r.user_email, r.user_phone, r.vehicle_type_id, vt.name AS vehicle_type_name,
-		r.vehicle_plate, r.vehicle_model, r.payment_method_id, pm.name AS payment_method_name, COALESCE(r.payment_status, '') AS payment_status,
+		r.code, r.user_name, r.user_email, COALESCE(r.user_phone, '') AS user_phone, r.vehicle_type_id, vt.name AS vehicle_type_name,
+		COALESCE(r.vehicle_plate, '') AS vehicle_plate, COALESCE(r.vehicle_model, '') AS vehicle_model, r.payment_method_id, pm.name AS payment_method_name, COALESCE(r.payment_status, '') AS payment_status,
 		r.status, r.start_time, r.end_time, r.created_at, r.updated_at, COALESCE(r.total_price, 0) AS total_price, COALESCE(r.deposit_payment, 0) AS deposit_payment
 	FROM reservations r
 	JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
@@ -185,10 +185,13 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 			&res.VehiclePlate, &res.VehicleModel, &res.PaymentMethodID, &res.PaymentMethodName, &res.PaymentStatus,
 			&res.Status, &res.StartTime, &res.EndTime, &res.CreatedAt, &res.UpdatedAt, &res.TotalPrice, &res.DepositPayment,
 		)
-		if err == nil {
-			reservationsList.Reservations = append(reservationsList.Reservations, res)
+		if err != nil {
+			return reservationsList, fmt.Errorf("scanning reservation list row: %w", err)
 		}
+		reservationsList.Reservations = append(reservationsList.Reservations, res)
 	}
+
+	if err := rows.Err(); err != nil { return reservationsList, fmt.Errorf("reading reservation list: %w", err) }
 
 	limitInt, _ := strconv.Atoi(limit)
 	offsetInt, _ := strconv.Atoi(offset)
