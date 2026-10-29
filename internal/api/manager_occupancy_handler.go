@@ -94,6 +94,48 @@ func (h *ManagerOccupancyHandler) Occupancy(w http.ResponseWriter,r *http.Reques
  w.Header().Set("Cache-Control","no-store")
  _=json.NewEncoder(w).Encode(map[string]interface{}{"accepted":true,"active_stays":len(input.Stays)})
 }
+
+type managerOnlineReservation struct {
+ Code string `json:"code"`
+ VehicleType string `json:"vehicle_type"`
+ StartTime time.Time `json:"start_time"`
+ EndTime time.Time `json:"end_time"`
+ Status string `json:"status"`
+}
+func (h *ManagerOccupancyHandler) Reservations(w http.ResponseWriter,r *http.Request) {
+ if r.Method!=http.MethodGet {http.Error(w,"Method not allowed",405);return}
+ secret:=os.Getenv("GREENPARKING_MANAGER_SYNC_TOKEN")
+ if len(secret)<32 || !managerIDPattern.MatchString(os.Getenv("GREENPARKING_MANAGER_INSTALLATION_ID")) {
+  http.Error(w,"Manager sync is not configured",503);return
+ }
+ auth:=r.Header.Get("Authorization")
+ given:=strings.TrimPrefix(auth,"Bearer ")
+ if !strings.HasPrefix(auth,"Bearer ") || subtle.ConstantTimeCompare([]byte(given),[]byte(secret))!=1 {
+  http.Error(w,"Unauthorized",401);return
+ }
+ ctx,cancel:=context.WithTimeout(r.Context(),5*time.Second);defer cancel()
+ rows,err:=h.DB.QueryContext(ctx,`SELECT r.code,vt.name,r.start_time,r.end_time,r.status
+ FROM reservations r JOIN vehicle_types vt ON vt.id=r.vehicle_type_id
+ WHERE r.status IN ('active','pending')
+ AND r.end_time > NOW() AND r.start_time < NOW()+INTERVAL '14 days'
+ AND (r.status='active' OR (r.status='pending' AND r.payment_method_id=2
+ AND r.created_at > NOW()-INTERVAL '45 minutes'))
+ ORDER BY r.start_time ASC LIMIT 250`)
+ if err!=nil { http.Error(w,"Unable to read reservations",503);return }
+ defer rows.Close()
+ results:=make([]managerOnlineReservation,0)
+ for rows.Next() {
+  var v managerOnlineReservation
+  if err:=rows.Scan(&v.Code,&v.VehicleType,&v.StartTime,&v.EndTime,&v.Status);err!=nil {
+   http.Error(w,"Unable to read reservations",503);return
+  }
+  results=append(results,v)
+ }
+ if err:=rows.Err();err!=nil {http.Error(w,"Unable to read reservations",503);return}
+ w.Header().Set("Content-Type","application/json");w.Header().Set("Cache-Control","no-store")
+ _=json.NewEncoder(w).Encode(map[string]interface{}{"reservations":results})
+}
+
 func InitManagerOccupancy(ctx context.Context,db *sql.DB) error {
  if db==nil {return errors.New("nil database")}
  _,err:=db.ExecContext(ctx,`
