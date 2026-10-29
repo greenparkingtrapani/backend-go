@@ -55,6 +55,44 @@ func (h *SiteContentHandler) Read(w http.ResponseWriter, r *http.Request) {
 	}{fields})
 }
 
+
+// ReadAll returns every editable localization entry for one language in one
+// database query. Public content only; admin credentials are never exposed.
+func (h *SiteContentHandler) ReadAll(w http.ResponseWriter, r *http.Request) {
+ language := r.URL.Query().Get("language")
+ if language != "it" && language != "en" && language != "es" {
+  http.Error(w, "Invalid language", http.StatusBadRequest)
+  return
+ }
+ rows, err := h.DB.QueryContext(r.Context(),
+  `SELECT section, field_key, value FROM public.site_content WHERE language=$1`, language)
+ if err != nil {
+  http.Error(w, "Could not read site content", http.StatusInternalServerError)
+  return
+ }
+ defer rows.Close()
+ fields := make(map[string]string)
+ for rows.Next() {
+  var section, key, value string
+  if err := rows.Scan(&section, &key, &value); err != nil {
+   http.Error(w, "Could not read site content", http.StatusInternalServerError)
+   return
+  }
+  if siteSections[section] && strings.HasPrefix(key, section+".") {
+   fields[key] = value
+  }
+ }
+ if err := rows.Err(); err != nil {
+  http.Error(w, "Could not read site content", http.StatusInternalServerError)
+  return
+ }
+ w.Header().Set("Cache-Control", "no-store")
+ w.Header().Set("Content-Type", "application/json")
+ _ = json.NewEncoder(w).Encode(struct {
+  Fields map[string]string `json:"fields"`
+ }{fields})
+}
+
 type siteContentSave struct {
 	Language string            `json:"language"`
 	Section  string            `json:"section"`
