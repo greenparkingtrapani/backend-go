@@ -103,6 +103,9 @@ func main() {
 
 	initStripe()
 
+	// Optional one-shot email provider diagnostic, never creates a reservation.
+	service.RunConfiguredEmailSmokeTest(db)
+
 	// Repositories
 	reservationRepo := repository.NewReservationRepository(db)
 	jobRepo := repository.NewJobRepository(db)
