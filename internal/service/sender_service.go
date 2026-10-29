@@ -217,7 +217,7 @@ func adminReservationEmailCopy(emailData entities.ReservationEmailData) (string,
 
 	subject := fmt.Sprintf("Nuova prenotazione confermata su GreenParking - Codice: %s", emailData.ReservationCode)
 	body := fmt.Sprintf(
-		"C'è una nuova prenotazione su GreenParking e il pagamento è già stato effettuato. Lo stato è %s.\n\n"+
+		"C'è una nuova prenotazione su GreenParking. Lo stato è %s. Il pagamento può essere previsto in loco.\n\n"+
 			"Dettagli della prenotazione:\n"+
 			"Codice prenotazione: %s\n"+
 			"Cliente: %s\n"+
