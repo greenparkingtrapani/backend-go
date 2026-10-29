@@ -76,7 +76,7 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 	if !endTime.After(startTime) {
 		return nil, fmt.Errorf("end time must be after start time")
 	}
-	if vehicleTypeName != "car" && vehicleTypeName != "suv" && vehicleTypeName != "motorcycle" {
+	if vehicleTypeName != "car" && vehicleTypeName != "sedan" && vehicleTypeName != "suv" && vehicleTypeName != "motorcycle" && vehicleTypeName != "electric_bicycle" {
 		return nil, fmt.Errorf("unknown vehicle type %d", vehicleTypeID)
 	}
 
@@ -93,24 +93,39 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 		),
 		capacities AS (
 			SELECT
-				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name IN ('car', 'suv')), 0) AS car_spaces,
-				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name = 'motorcycle'), 0) AS moto_spaces
+				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name IN ('car', 'sedan', 'suv')), 0) AS car_spaces,
+				COALESCE(MAX(vs.spaces) FILTER (WHERE vt.name IN ('motorcycle', 'electric_bicycle')), 0) AS moto_spaces
 			FROM vehicle_spaces vs
 			JOIN vehicle_types vt ON vt.id = vs.vehicle_type_id
 		),
 		occupancy AS (
 			SELECT rs.slot_hour_start, rs.slot_hour_end,
-				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'suv'))::int AS cars,
-				COUNT(r.id) FILTER (WHERE vt.name = 'motorcycle')::int AS motos
+				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'sedan', 'suv'))::int AS cars,
+				COUNT(r.id) FILTER (WHERE vt.name IN ('motorcycle', 'electric_bicycle'))::int AS motos
 			FROM requested_slots rs
-			LEFT JOIN reservations r ON r.status = 'active'
+			LEFT JOIN reservations r ON (r.status = 'active' OR (r.status = 'pending' AND r.payment_method_id = 2 AND r.created_at > NOW() - interval '45 minutes'))
 				AND r.start_time < rs.slot_hour_end AND r.end_time > rs.slot_hour_start
 			LEFT JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
 			GROUP BY rs.slot_hour_start, rs.slot_hour_end
 		)
+		, manager_occupancy AS (
+		 SELECT rs.slot_hour_start,
+		 COUNT(m.local_stay_id) FILTER (WHERE m.vehicle_type IN ('car', 'sedan', 'suv'))::int AS cars,
+		 COUNT(m.local_stay_id) FILTER (WHERE m.vehicle_type IN ('motorcycle','electric_bicycle'))::int AS motos
+		 FROM requested_slots rs
+		 LEFT JOIN public.manager_active_stays m
+		 ON (m.arrival_local AT TIME ZONE 'Europe/Rome') < rs.slot_hour_end
+		 AND (m.booking_code='' OR NOT EXISTS (
+		 SELECT 1 FROM reservations booked
+		 WHERE booked.code=m.booking_code AND booked.status IN ('active','pending')
+		 AND booked.start_time < rs.slot_hour_end AND booked.end_time > rs.slot_hour_start
+		 ))
+		 GROUP BY rs.slot_hour_start
+		)
 		SELECT o.slot_hour_start, o.slot_hour_end,
-			c.car_spaces, c.moto_spaces, o.cars, o.motos
+			c.car_spaces, c.moto_spaces, o.cars+m.cars, o.motos+m.motos
 		FROM occupancy o CROSS JOIN capacities c
+		JOIN manager_occupancy m ON m.slot_hour_start=o.slot_hour_start
 		ORDER BY o.slot_hour_start
 	`
 	rows, err := r.DB.Query(query, startTime, endTime)
@@ -139,7 +154,7 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 // For a new motorcycle, the current motorcycle count must still be below the
 // effective maximum, which accounts for the car bay used by motorcycle #3/#6.
 func effectiveSpaces(vehicle string, carCapacity, motoCapacity, cars, motos int) (total, occupied int) {
-	if vehicle == "motorcycle" {
+	if vehicle == "motorcycle" || vehicle == "electric_bicycle" {
 		freeCarBays := carCapacity - cars
 		if freeCarBays < 0 {
 			freeCarBays = 0
@@ -341,4 +356,21 @@ func (r *ReservationRepository) UpdateReservationStatusPaymentAndIntent(reservat
 		WHERE id = $4`
 	_, err := r.DB.Exec(query, paymentStatus, reservationStatus, paymentIntentID, reservationID)
 	return err
+}
+
+ // ActivateOnlineReservation marks a paid Stripe checkout active exactly once.
+ // The conditional update prevents duplicate webhook deliveries from sending duplicate notices.
+func (r *ReservationRepository) ActivateOnlineReservation(sessionID, paymentIntentID string) (bool, error) {
+ var id int64
+ err := r.DB.QueryRow(`
+  UPDATE reservations
+  SET status = 'active', payment_status = 'succeeded',
+      stripe_payment_intent_id = $2, updated_at = NOW()
+  WHERE stripe_session_id = $1 AND payment_method_id = 2
+    AND status = 'pending' AND COALESCE(payment_status,'') <> 'succeeded'
+  RETURNING id
+ `, sessionID, paymentIntentID).Scan(&id)
+ if errors.Is(err, sql.ErrNoRows) { return false, nil }
+ if err != nil { return false, err }
+ return true, nil
 }

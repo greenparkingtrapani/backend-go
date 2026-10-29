@@ -1,6 +1,7 @@
 package main
 
 import (
+ database "estacionamienti/internal/db"
 	"context"
 	"database/sql"
 	"estacionamienti/internal/api"
@@ -88,6 +89,24 @@ func main() {
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to connect to DB: %v", err)
 	}
+	managerSchemaContext, managerSchemaCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := api.InitManagerOccupancy(managerSchemaContext, db); err != nil {
+		managerSchemaCancel()
+		log.Fatalf("Could not initialize manager occupancy: %v", err)
+	}
+	managerSchemaCancel()
+
+	// Install vehicle category reference data in production before the API starts.
+	// The migration runs in one transaction and is safe on repeated starts.
+	if os.Getenv("RAILWAY_ENVIRONMENT_NAME") == "production" && os.Getenv("RAILWAY_PROJECT_ID") == "f74a2555-8202-40db-84f4-71df97ee4b58" {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if err := database.MigrateVehicleCategories(ctx, db); err != nil {
+			log.Fatalf("Vehicle categories migration failed: %v", err)
+		}
+		log.Print("Vehicle categories migration completed")
+	}
+
 
 	initStripe()
 
@@ -132,6 +151,9 @@ func main() {
 	// Public endpoints
 	r.HandleFunc("/api/prices", userReservationHandler.GetPrices).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/site-content", siteContentHandler.Read).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/manager/occupancy", (&api.ManagerOccupancyHandler{DB: db}).Occupancy).Methods("PUT", "OPTIONS")
+ r.HandleFunc("/api/manager/reservations", (&api.ManagerOccupancyHandler{DB: db}).Reservations).Methods("GET", "OPTIONS")
+ r.HandleFunc("/api/site-content/all", siteContentHandler.ReadAll).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/luggage-requests", luggageHandler.Create).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/vehicle-types", userReservationHandler.GetVehicleTypes).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/availability", userReservationHandler.CheckAvailability).Methods("GET", "OPTIONS")
