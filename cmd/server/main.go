@@ -152,6 +152,7 @@ func main() {
 	r.HandleFunc("/api/prices", userReservationHandler.GetPrices).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/site-content", siteContentHandler.Read).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/manager/occupancy", (&api.ManagerOccupancyHandler{DB: db}).Occupancy).Methods("PUT", "OPTIONS")
+ r.HandleFunc("/api/manager/reservations", (&api.ManagerOccupancyHandler{DB: db}).Reservations).Methods("GET", "OPTIONS")
  r.HandleFunc("/api/site-content/all", siteContentHandler.ReadAll).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/luggage-requests", luggageHandler.Create).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/vehicle-types", userReservationHandler.GetVehicleTypes).Methods("GET", "OPTIONS")
