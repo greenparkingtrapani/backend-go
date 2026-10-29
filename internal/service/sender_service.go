@@ -64,6 +64,7 @@ func reservationEmailData(reservation entities.ReservationResponse, status strin
 		language = adminNotificationLanguage
 	}
 
+	paymentNotice, paymentOutstanding, paymentPaid := reservationPaymentNotice(reservation)
 	return entities.ReservationEmailData{
 		UserName:           reservation.UserName,
 		UserEmail:          reservation.UserEmail,
@@ -78,7 +79,28 @@ func reservationEmailData(reservation entities.ReservationResponse, status strin
 		Status:             status,
 		IsAdmin:            isAdmin,
 		IsCancellation:     isCancellationStatus(status),
+		PaymentNotice:      paymentNotice,
+		PaymentOutstanding: paymentOutstanding,
+		PaymentPaid:        paymentPaid,
 	}
+}
+
+
+// reservationPaymentNotice uses the payment state, never the booking status.
+// An active reservation can still be unpaid when the customer pays on arrival.
+func reservationPaymentNotice(reservation entities.ReservationResponse) (string, bool, bool) {
+	paymentStatus := strings.ToLower(strings.TrimSpace(reservation.PaymentStatus))
+	switch paymentStatus {
+	case "paid", "succeeded", "completed":
+		if reservation.PaymentMethodID == 2 {
+			return "PAGAMENTO ONLINE EFFETTUATO", false, true
+		}
+		return "PAGAMENTO REGISTRATO COME EFFETTUATO", false, true
+	}
+	if reservation.PaymentMethodID == 1 {
+		return "DA INCASSARE AL PARCHEGGIO", true, false
+	}
+	return "PAGAMENTO ONLINE NON ANCORA CONFERMATO: verificare prima di considerare saldata la prenotazione", false, false
 }
 
 func isCancellationStatus(status string) bool {
@@ -209,7 +231,7 @@ func adminReservationEmailCopy(emailData entities.ReservationEmailData) (string,
 				"Check-out: %s\n\n"+
 				"Questo avviso è per l'amministratore del parcheggio.\n\n"+
 				"© %d GreenParking. Tutti i diritti riservati.",
-			emailData.Status, emailData.ReservationCode, emailData.UserName, emailData.UserEmail, emailData.UserPhone,
+			emailData.Status, emailData.PaymentNotice, emailData.ReservationCode, emailData.UserName, emailData.UserEmail, emailData.UserPhone,
 			emailData.VehicleModel, emailData.VehiclePlate, emailData.StartTimeFormatted, emailData.EndTimeFormatted, emailData.CurrentYear,
 		)
 		return subject, body
@@ -217,7 +239,7 @@ func adminReservationEmailCopy(emailData entities.ReservationEmailData) (string,
 
 	subject := fmt.Sprintf("Nuova prenotazione confermata su GreenParking - Codice: %s", emailData.ReservationCode)
 	body := fmt.Sprintf(
-		"C'è una nuova prenotazione su GreenParking. Lo stato è %s. PAGAMENTO IN LOCO DA INCASSARE AL PARCHEGGIO: verificare e registrare l'incasso all'arrivo del cliente.\n\n"+
+		"C'è una nuova prenotazione su GreenParking. Lo stato è %s. Stato pagamento: %s.\n\n"+
 			"Dettagli della prenotazione:\n"+
 			"Codice prenotazione: %s\n"+
 			"Cliente: %s\n"+
