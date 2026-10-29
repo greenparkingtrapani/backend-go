@@ -208,6 +208,16 @@ func (s *ReservationService) CreateReservation(req *entities.ReservationRequest)
   }
   return nil, fmt.Errorf("unable to store reservation: %w", err)
  }
+ // An on-site booking is already confirmed at the moment it is stored.
+ // Do not send a confirmation for an unpaid Stripe checkout.
+ if req.PaymentMethodID == 1 {
+  confirmed := reservationResponseFromDB(reservation)
+  confirmed.Status = statusActive
+  confirmationStatus := s.senderService.StatusTranslation(confirmedReservationStatus, confirmed.Language)
+  s.senderService.SendReservationEmail(confirmed, confirmationStatus)
+  s.senderService.SendAdminReservationEmail(confirmed, statusActive)
+  log.Printf("Reservation %s saved; confirmation emails queued for customer and admin", code)
+ }
  return &entities.StripeSessionResponse{Code:code,URL:checkoutURL,SessionID:checkoutID},nil
 }
 
