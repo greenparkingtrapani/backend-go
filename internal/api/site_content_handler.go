@@ -16,6 +16,7 @@ type SiteContentHandler struct{ DB *sql.DB }
 var siteSections = map[string]bool{
 	"Header": true, "HeroSection": true, "AboutSection": true,
 	"PricingSection": true, "ContactSection": true, "Footer": true, "SEO": true,
+ "Reservation": true,
 }
 
 func validSiteContentScope(language, section string) bool {
