@@ -103,7 +103,7 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'suv'))::int AS cars,
 				COUNT(r.id) FILTER (WHERE vt.name = 'motorcycle')::int AS motos
 			FROM requested_slots rs
-			LEFT JOIN reservations r ON r.status = 'active'
+			LEFT JOIN reservations r ON (r.status = 'active' OR (r.status = 'pending' AND r.payment_method_id = 2 AND r.created_at > NOW() - interval '45 minutes'))
 				AND r.start_time < rs.slot_hour_end AND r.end_time > rs.slot_hour_start
 			LEFT JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
 			GROUP BY rs.slot_hour_start, rs.slot_hour_end
@@ -341,4 +341,21 @@ func (r *ReservationRepository) UpdateReservationStatusPaymentAndIntent(reservat
 		WHERE id = $4`
 	_, err := r.DB.Exec(query, paymentStatus, reservationStatus, paymentIntentID, reservationID)
 	return err
+}
+
+ // ActivateOnlineReservation marks a paid Stripe checkout active exactly once.
+ // The conditional update prevents duplicate webhook deliveries from sending duplicate notices.
+func (r *ReservationRepository) ActivateOnlineReservation(sessionID, paymentIntentID string) (bool, error) {
+ var id int64
+ err := r.DB.QueryRow(`
+  UPDATE reservations
+  SET status = 'active', payment_status = 'succeeded',
+      stripe_payment_intent_id = $2, updated_at = NOW()
+  WHERE stripe_session_id = $1 AND payment_method_id = 2
+    AND status = 'pending' AND COALESCE(payment_status,'') <> 'succeeded'
+  RETURNING id
+ `, sessionID, paymentIntentID).Scan(&id)
+ if errors.Is(err, sql.ErrNoRows) { return false, nil }
+ if err != nil { return false, err }
+ return true, nil
 }
