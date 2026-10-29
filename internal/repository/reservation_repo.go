@@ -100,7 +100,7 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 		),
 		occupancy AS (
 			SELECT rs.slot_hour_start, rs.slot_hour_end,
-				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'suv'))::int AS cars,
+				COUNT(r.id) FILTER (WHERE vt.name IN ('car', 'sedan', 'suv'))::int AS cars,
 				COUNT(r.id) FILTER (WHERE vt.name IN ('motorcycle', 'electric_bicycle'))::int AS motos
 			FROM requested_slots rs
 			LEFT JOIN reservations r ON (r.status = 'active' OR (r.status = 'pending' AND r.payment_method_id = 2 AND r.created_at > NOW() - interval '45 minutes'))
@@ -108,9 +108,24 @@ func (r *ReservationRepository) GetHourlyAvailabilityDetails(startTime, endTime 
 			LEFT JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
 			GROUP BY rs.slot_hour_start, rs.slot_hour_end
 		)
+		, manager_occupancy AS (
+		 SELECT rs.slot_hour_start,
+		 COUNT(m.local_stay_id) FILTER (WHERE m.vehicle_type IN ('car', 'sedan', 'suv'))::int AS cars,
+		 COUNT(m.local_stay_id) FILTER (WHERE m.vehicle_type IN ('motorcycle','electric_bicycle'))::int AS motos
+		 FROM requested_slots rs
+		 LEFT JOIN public.manager_active_stays m
+		 ON (m.arrival_local AT TIME ZONE 'Europe/Rome') < rs.slot_hour_end
+		 AND (m.booking_code='' OR NOT EXISTS (
+		 SELECT 1 FROM reservations booked
+		 WHERE booked.code=m.booking_code AND booked.status IN ('active','pending')
+		 AND booked.start_time < rs.slot_hour_end AND booked.end_time > rs.slot_hour_start
+		 ))
+		 GROUP BY rs.slot_hour_start
+		)
 		SELECT o.slot_hour_start, o.slot_hour_end,
-			c.car_spaces, c.moto_spaces, o.cars, o.motos
+			c.car_spaces, c.moto_spaces, o.cars+m.cars, o.motos+m.motos
 		FROM occupancy o CROSS JOIN capacities c
+		JOIN manager_occupancy m ON m.slot_hour_start=o.slot_hour_start
 		ORDER BY o.slot_hour_start
 	`
 	rows, err := r.DB.Query(query, startTime, endTime)
