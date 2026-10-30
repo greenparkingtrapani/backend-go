@@ -318,13 +318,13 @@ func (r *AdminRepository) UpdateVehiclePrice(vehicleType string, timeName string
 	return err
 }
 
-// GREENPARKING_DELETE_V1: only completed/canceled reservations without any successful/refunded payment may be purged.
+// GREENPARKING_DELETE_V2: Stripe sessions must first be checked and expired by AdminService. Never delete paid/refunded reservations.
 func (r *AdminRepository) PurgeUnpaidClosedReservation(code string) (bool, error) {
 	result, err := r.DB.Exec(
 		`DELETE FROM reservations
      WHERE code = $1 AND status IN ('pending', 'finished', 'canceled')
        AND COALESCE(payment_status, '') NOT IN ('succeeded', 'refunded', 'paid')
-       AND NULLIF(stripe_session_id, '') IS NULL`, code)
+       AND (NULLIF(stripe_session_id, '') IS NULL OR payment_method_id = 2)`, code)
 	if err != nil {
 		return false, err
 	}
