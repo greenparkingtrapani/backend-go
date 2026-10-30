@@ -14,4 +14,7 @@ type ReservationEmailData struct {
 	Status             string
 	IsAdmin            bool
 	IsCancellation     bool
+	PaymentNotice      string
+	PaymentOutstanding bool
+	PaymentPaid        bool
 }

@@ -119,8 +119,8 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 	// Main query
 	query := `
 	SELECT
-		r.code, r.user_name, r.user_email, r.user_phone, r.vehicle_type_id, vt.name AS vehicle_type_name,
-		r.vehicle_plate, r.vehicle_model, r.payment_method_id, pm.name AS payment_method_name, COALESCE(r.payment_status, '') AS payment_status,
+		r.code, r.user_name, r.user_email, COALESCE(r.user_phone, '') AS user_phone, r.vehicle_type_id, vt.name AS vehicle_type_name,
+		COALESCE(r.vehicle_plate, '') AS vehicle_plate, COALESCE(r.vehicle_model, '') AS vehicle_model, r.payment_method_id, pm.name AS payment_method_name, COALESCE(r.payment_status, '') AS payment_status,
 		r.status, r.start_time, r.end_time, r.created_at, r.updated_at, COALESCE(r.total_price, 0) AS total_price, COALESCE(r.deposit_payment, 0) AS deposit_payment
 	FROM reservations r
 	JOIN vehicle_types vt ON vt.id = r.vehicle_type_id
@@ -185,10 +185,13 @@ func (r *AdminRepository) ListReservationsWithFilters(startTime, endTime, code, 
 			&res.VehiclePlate, &res.VehicleModel, &res.PaymentMethodID, &res.PaymentMethodName, &res.PaymentStatus,
 			&res.Status, &res.StartTime, &res.EndTime, &res.CreatedAt, &res.UpdatedAt, &res.TotalPrice, &res.DepositPayment,
 		)
-		if err == nil {
-			reservationsList.Reservations = append(reservationsList.Reservations, res)
+		if err != nil {
+			return reservationsList, fmt.Errorf("scanning reservation list row: %w", err)
 		}
+		reservationsList.Reservations = append(reservationsList.Reservations, res)
 	}
+
+	if err := rows.Err(); err != nil { return reservationsList, fmt.Errorf("reading reservation list: %w", err) }
 
 	limitInt, _ := strconv.Atoi(limit)
 	offsetInt, _ := strconv.Atoi(offset)
@@ -315,13 +318,13 @@ func (r *AdminRepository) UpdateVehiclePrice(vehicleType string, timeName string
 	return err
 }
 
-// GREENPARKING_DELETE_V1: only completed/canceled reservations without any successful/refunded payment may be purged.
+// GREENPARKING_DELETE_V2: Stripe sessions must first be checked and expired by AdminService. Never delete paid/refunded reservations.
 func (r *AdminRepository) PurgeUnpaidClosedReservation(code string) (bool, error) {
 	result, err := r.DB.Exec(
 		`DELETE FROM reservations
      WHERE code = $1 AND status IN ('pending', 'finished', 'canceled')
        AND COALESCE(payment_status, '') NOT IN ('succeeded', 'refunded', 'paid')
-       AND NULLIF(stripe_session_id, '') IS NULL`, code)
+       AND (NULLIF(stripe_session_id, '') IS NULL OR payment_method_id = 2)`, code)
 	if err != nil {
 		return false, err
 	}

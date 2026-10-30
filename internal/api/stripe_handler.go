@@ -58,39 +58,48 @@ func (h *StripeWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Requ
 	// Manejar eventos de Stripe Checkout
 	switch event.Type {
 	case "checkout.session.completed":
-		var sess stripe.CheckoutSession
-		if err := json.Unmarshal(event.Data.Raw, &sess); err != nil {
-			log.Printf("Error parsing checkout.session: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if sess.ID == "" {
-			log.Printf("No session ID in checkout.session.completed")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		paymentIntentID := ""
-		if sess.PaymentIntent != nil {
-			paymentIntentID = sess.PaymentIntent.ID
-		}
-		err := h.reservationService.UpdateReservationStatusPaymentAndIntentBySessionID(sess.ID, active, statusSucceeded, paymentIntentID)
-		if err != nil {
-			log.Printf("DB error: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		reservation, err := h.reservationService.GetReservationBySessionID(sess.ID)
-		if err != nil {
-			log.Printf("DB error: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		statusTraducido := h.senderService.StatusTranslation(confirmed, reservation.Language)
-		h.senderService.SendReservationSMS(*reservation, statusTraducido)
-		h.senderService.SendReservationEmail(*reservation, statusTraducido)
-		h.senderService.SendAdminReservationEmail(*reservation, confirmed)
-
-	case "charge.refunded":
+  var sess stripe.CheckoutSession
+  if err := json.Unmarshal(event.Data.Raw, &sess); err != nil {
+   http.Error(w,"invalid checkout session",http.StatusBadRequest)
+   return
+  }
+  if sess.ID == "" { http.Error(w,"missing session ID",http.StatusBadRequest); return }
+  if string(sess.PaymentStatus) != "paid" {
+   // Never confirm a reservation before Stripe has collected payment.
+   w.WriteHeader(http.StatusOK)
+   return
+  }
+  reservation, err := h.reservationService.GetReservationBySessionID(sess.ID)
+  if err != nil {
+   log.Printf("Missing reservation for paid session %s: %v",sess.ID,err)
+   w.WriteHeader(http.StatusInternalServerError)
+   return
+  }
+  amount := int64(float64(reservation.TotalPrice)*100 + 0.5)
+  if reservation.PaymentMethodID != 2 || sess.Currency != "eur" || sess.AmountTotal != amount {
+   log.Printf("Stripe session %s amount, currency or payment mode mismatch",sess.ID)
+   w.WriteHeader(http.StatusBadRequest)
+   return
+  }
+  intentID := ""
+  if sess.PaymentIntent != nil { intentID = sess.PaymentIntent.ID }
+  changed, err := h.reservationService.ActivateOnlineReservation(sess.ID,intentID)
+  if err != nil {
+   log.Printf("Payment activation failed for %s: %v",sess.ID,err)
+   w.WriteHeader(http.StatusInternalServerError)
+   return
+  }
+  if changed {
+   // Activation has committed the payment: notifications must use the new state.
+   reservation.Status = active
+   reservation.PaymentStatus = statusSucceeded
+   statusTranslated := h.senderService.StatusTranslation(confirmed,reservation.Language)
+   h.senderService.SendReservationSMS(*reservation,statusTranslated)
+   h.senderService.SendReservationEmail(*reservation,statusTranslated)
+   h.senderService.SendAdminReservationEmail(*reservation,confirmed)
+  }
+  
+ case "charge.refunded":
 		var charge stripe.Charge
 		json.Unmarshal(event.Data.Raw, &charge)
 		if charge.PaymentIntent != nil && charge.PaymentIntent.ID != "" {

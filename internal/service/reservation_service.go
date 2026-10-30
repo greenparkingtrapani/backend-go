@@ -1,6 +1,8 @@
 package service
 
 import (
+ "context"
+ "math"
 	"database/sql"
 	"estacionamienti/internal/db"
 	"estacionamienti/internal/entities"
@@ -146,50 +148,81 @@ func (s *ReservationService) GetTotalPriceForReservation(vehicleTypeID int, star
 }
 
 func (s *ReservationService) CreateReservation(req *entities.ReservationRequest) (*entities.StripeSessionResponse, error) {
-	// Temporary business policy: accept bookings without any online payment or Stripe session.
-	// Enforce this on the server as well as in the UI, to prevent old clients charging cards.
-	if req.PaymentMethodID != 1 {
-		return nil, fmt.Errorf("online payments are temporarily disabled; choose payment on arrival")
-	}
-	if req.StartTime.Before(time.Now().Add(-10*time.Minute)) || !req.EndTime.After(req.StartTime) {
-		return nil, fmt.Errorf("invalid reservation dates")
-	}
-	availability, err := s.CheckAvailability(*req)
-	if err != nil {
-		return nil, err
-	}
-	if !availability.IsOverallAvailable {
-		return nil, fmt.Errorf("no parking spaces available for the requested dates")
-	}
-	quote, err := s.GetTotalPriceForReservation(req.VehicleTypeID, req.StartTime, req.EndTime)
-	if err != nil {
-		return nil, err
-	}
-	code := fmt.Sprintf("%08X", time.Now().UnixNano()%100000000)
-	reservation := &db.Reservation{
-		Code:            code,
-		UserName:        req.UserName,
-		UserEmail:       req.UserEmail,
-		UserPhone:       sql.NullString{String: req.UserPhone, Valid: req.UserPhone != ""},
-		VehicleTypeID:   req.VehicleTypeID,
-		VehiclePlate:    sql.NullString{String: req.VehiclePlate, Valid: req.VehiclePlate != ""},
-		VehicleModel:    sql.NullString{String: req.VehicleModel, Valid: req.VehicleModel != ""},
-		PaymentMethodID: 1,
-		Status:          statusActive,
-		StartTime:       req.StartTime,
-		EndTime:         req.EndTime,
-		Language:        req.Language,
-		TotalPrice:      sql.NullFloat64{Float64: float64(quote.TotalPrice), Valid: true},
-		DepositPayment:  sql.NullFloat64{},
-		PaymentStatus:   sql.NullString{String: statusPending, Valid: true},
-		CreatedAt:       time.Now().UTC(),
-		UpdatedAt:       time.Now().UTC(),
-	}
-	if err := s.Repo.CreateReservation(reservation); err != nil {
-		log.Printf("Error creating onsite reservation in repository: %v", err)
-		return nil, err
-	}
-	return &entities.StripeSessionResponse{Code: code, URL: "", SessionID: ""}, nil
+ if req.PaymentMethodID != 1 && req.PaymentMethodID != 2 {
+  return nil, fmt.Errorf("unsupported payment method")
+ }
+ if req.StartTime.Before(time.Now().Add(-10*time.Minute)) || !req.EndTime.After(req.StartTime) {
+  return nil, fmt.Errorf("invalid reservation dates")
+ }
+ // A database-wide advisory lock serializes booking decisions across all Go instances.
+ // Hold it until the reservation is stored, so two customers cannot claim the final bay.
+ ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+ defer cancel()
+ conn, err := s.Repo.DB.Conn(ctx)
+ if err != nil { return nil, err }
+ defer conn.Close()
+ if _, err = conn.ExecContext(ctx, "SELECT pg_advisory_lock(82920261029)"); err != nil {
+  return nil, fmt.Errorf("reservation lock unavailable: %w", err)
+ }
+ defer func() {
+  unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+  defer unlockCancel()
+  if _, unlockErr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock(82920261029)"); unlockErr != nil {
+   log.Printf("Unable to release reservation lock: %v", unlockErr)
+  }
+ }()
+ availability, err := s.CheckAvailability(*req)
+ if err != nil { return nil, err }
+ if !availability.IsOverallAvailable { return nil, fmt.Errorf("no spaces available for the requested dates") }
+ quote, err := s.GetTotalPriceForReservation(req.VehicleTypeID, req.StartTime, req.EndTime)
+ if err != nil { return nil, err }
+ amount := int64(math.Round(float64(quote.TotalPrice)*100))
+ if amount < 50 { return nil, fmt.Errorf("invalid reservation amount") }
+ code := fmt.Sprintf("%08X", time.Now().UnixNano()%100000000)
+ status := statusActive
+ checkoutURL, checkoutID := "", ""
+ if req.PaymentMethodID == 2 {
+  status = statusPending
+  checkoutURL, checkoutID, err = s.stripeService.CreateCheckoutSession(amount, "eur", req.UserEmail, req.Language)
+  if err != nil { return nil, fmt.Errorf("Stripe checkout unavailable: %w", err) }
+ }
+ now := time.Now().UTC()
+ reservation := &db.Reservation{
+  Code:code, UserName:req.UserName, UserEmail:req.UserEmail,
+  UserPhone:sql.NullString{String:req.UserPhone,Valid:req.UserPhone!="" },
+  VehicleTypeID:req.VehicleTypeID,
+  VehiclePlate:sql.NullString{String:req.VehiclePlate,Valid:req.VehiclePlate!="" },
+  VehicleModel:sql.NullString{String:req.VehicleModel,Valid:req.VehicleModel!="" },
+  PaymentMethodID:req.PaymentMethodID, Status:status,
+  StartTime:req.StartTime,EndTime:req.EndTime, Language:req.Language,
+  TotalPrice:sql.NullFloat64{Float64:float64(quote.TotalPrice),Valid:true},
+  PaymentStatus:sql.NullString{String:statusPending,Valid:true},
+  StripeSessionID:sql.NullString{String:checkoutID,Valid:checkoutID!="" },
+  CreatedAt:now,UpdatedAt:now,
+ }
+ if err := s.Repo.CreateReservation(reservation); err != nil {
+  if checkoutID != "" {
+   if expireErr := s.stripeService.ExpireCheckoutSession(checkoutID); expireErr != nil {
+    log.Printf("Checkout session %s must be reviewed after DB failure: %v", checkoutID, expireErr)
+   }
+  }
+  return nil, fmt.Errorf("unable to store reservation: %w", err)
+ }
+ // An on-site booking is already confirmed at the moment it is stored.
+ // Do not send a confirmation for an unpaid Stripe checkout.
+ if req.PaymentMethodID == 1 {
+  confirmed := reservationResponseFromDB(reservation)
+  confirmed.Status = statusActive
+  confirmationStatus := s.senderService.StatusTranslation(confirmedReservationStatus, confirmed.Language)
+  s.senderService.SendReservationEmail(confirmed, confirmationStatus)
+  s.senderService.SendAdminReservationEmail(confirmed, statusActive)
+  log.Printf("Reservation %s saved; confirmation emails queued for customer and admin", code)
+ }
+ return &entities.StripeSessionResponse{Code:code,URL:checkoutURL,SessionID:checkoutID},nil
+}
+
+func (s *ReservationService) ActivateOnlineReservation(sessionID, intentID string) (bool,error) {
+ return s.Repo.ActivateOnlineReservation(sessionID,intentID)
 }
 
 func (s *ReservationService) GetReservationByCode(code, email string) (*entities.ReservationResponse, error) {

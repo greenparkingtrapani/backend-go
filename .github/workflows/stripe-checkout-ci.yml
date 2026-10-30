@@ -1,0 +1,17 @@
+name: Stripe Checkout backend CI
+on:
+  pull_request:
+    branches: [staging]
+  push:
+    branches: [fix/stripe-checkout-safe-20261029, feat/reservation-content-editor-20261029, feat/vehicle-sizes-ebike-20261029, fix/cms-live-publish-20261029, fix/confirmation-and-bikes-20261029]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: gofmt -l internal/service/reservation_service.go internal/service/stripe_service.go internal/repository/reservation_repo.go internal/api/stripe_handler.go
+      - run: go test ./...
+      - run: go vet ./...

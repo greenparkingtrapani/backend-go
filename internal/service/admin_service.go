@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"database/sql"
+ "github.com/stripe/stripe-go/v82"
+ "github.com/stripe/stripe-go/v82/checkout/session"
 )
 
 type AdminService struct {
@@ -143,5 +145,26 @@ func (s *AdminService) UpdateVehicleSpacesAndPrices(vehicleType string, spaces i
 
 // GREENPARKING_DELETE_V1: no Stripe refund, no status mutation; protected purge only.
 func (s *AdminService) PurgeReservation(code string) (bool, error) {
-	return s.adminRepo.PurgeUnpaidClosedReservation(code)
+	// Look up any Stripe Checkout session before deleting. Never trust the local
+ // pending flag alone: webhooks can arrive later.
+ var checkoutID sql.NullString
+ err := s.adminRepo.DB.QueryRow("SELECT stripe_session_id FROM reservations WHERE code = $1", code).Scan(&checkoutID)
+ if err != nil { return false, err }
+ if checkoutID.Valid && checkoutID.String != "" {
+   checkout, err := session.Get(checkoutID.String, nil)
+   if err != nil { return false, fmt.Errorf("cannot verify Stripe payment before deletion: %w", err) }
+   if checkout.PaymentStatus != stripe.CheckoutSessionPaymentStatusUnpaid {
+      return false, nil
+   }
+   if checkout.Status == stripe.CheckoutSessionStatusOpen {
+      // An open Checkout must be expired before deletion to prevent a
+      // customer from paying a reservation that no longer exists.
+      if _, err := session.Expire(checkoutID.String, nil); err != nil {
+         return false, fmt.Errorf("cannot expire Stripe checkout before deletion: %w", err)
+      }
+   } else if checkout.Status != stripe.CheckoutSessionStatusExpired {
+      return false, nil
+   }
+ }
+ return s.adminRepo.PurgeUnpaidClosedReservation(code)
 }
